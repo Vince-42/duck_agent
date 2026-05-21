@@ -421,8 +421,8 @@ class DuckAgent:
         if provider == "grok":
             add_grok_candidates()
         elif provider == "auto":
-            add_ollama_candidates()
             add_grok_candidates()
+            add_ollama_candidates()
         else:
             add_ollama_candidates()
 
