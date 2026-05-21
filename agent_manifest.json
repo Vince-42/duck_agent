@@ -1,0 +1,12 @@
+{
+  "team_name": "duck_agent",
+  "primary_model": "qwen2.5-coder:7b",
+  "provider": "Ollama",
+  "runtime_or_tool": "custom Python agent",
+  "additional_models": [],
+  "paid_frontier_models_used_after_spec_release": false,
+  "copilot_or_paid_ide_assistant_used_after_spec_release": false,
+  "institutional_or_work_model_quota_used_after_spec_release": false,
+  "model_configuration_location": "agent.py",
+  "notes": "Pre-reveal scaffold only. Update after the hidden task release if the setup changes."
+}
