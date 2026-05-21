@@ -28,6 +28,7 @@ class AgentConfig:
     solution_command: str = os.getenv("AGENT_SOLUTION_COMMAND", "python3 solution.py")
     test_command: str = os.getenv("AGENT_TEST_COMMAND", "")
     enable_multirole: bool = os.getenv("AGENT_MULTI_ROLE", "1").lower() not in {"0", "false", "no"}
+    orchestrator_config: Path | None = Path(os.getenv("AGENT_ORCHESTRATOR_CONFIG")) if os.getenv("AGENT_ORCHESTRATOR_CONFIG") else Path("agent.json")
 
 
 @dataclass
@@ -89,6 +90,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="General test command for non-hackathon tasks",
     )
     parser.add_argument(
+        "--orchestrator-config",
+        default=os.getenv("AGENT_ORCHESTRATOR_CONFIG", "agent.json"),
+        help="Path to the structured cognition engine JSON config",
+    )
+    parser.add_argument(
         "--single-agent",
         action="store_true",
         help="Disable the multi-role orchestrator layer and use the base single-agent prompt only",
@@ -113,6 +119,7 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
         solution_command=args.solution_command,
         test_command=args.test_command,
         enable_multirole=not args.single_agent,
+        orchestrator_config=Path(args.orchestrator_config) if args.orchestrator_config else None,
     )
 
 
@@ -183,10 +190,29 @@ class DuckAgent:
         self.logger = AgentLogger(config.logs_dir)
         self.state = RuntimeState()
         self.state.external_log_path = self.detect_requested_log_output_path()
-        self.orchestrator = MultiRoleOrchestrator() if config.enable_multirole else None
+        self.orchestrator = (
+            MultiRoleOrchestrator(orchestrator_config_path=config.orchestrator_config)
+            if config.enable_multirole
+            else None
+        )
 
     def has_test_target(self) -> bool:
-        return bool(self.config.test_command) or Path("secret_spec/test_runner/run_tests.py").exists()
+        return self.has_validation_target()
+
+    def has_validation_target(self) -> bool:
+        return bool(self.config.test_command) or Path("secret_spec/test_runner/run_tests.py").exists() or self.can_run_builtin_validation()
+
+    def supports_builtin_validation_path(self, relative_path: str) -> bool:
+        return Path(relative_path).suffix.lower() in {".py", ".c", ".cpp", ".txt", ".md"}
+
+    def can_run_builtin_validation(self) -> bool:
+        path = self.state.primary_artifact_path
+        if not path:
+            return False
+        artifact = Path(path)
+        if not artifact.exists():
+            return False
+        return self.supports_builtin_validation_path(path)
 
     def primary_task_text(self) -> str:
         if self.config.task:
@@ -232,7 +258,20 @@ class DuckAgent:
         if "introduction message" in lowered:
             return "introduction.txt"
 
+        inferred_python_program = re.search(
+            r"(?:create|write|build|make)\s+(?:a\s+|an\s+)?([A-Za-z0-9_-]+)\s+(?:program|script|cli|calculator|tool)\s+in\s+python",
+            task_description,
+            flags=re.IGNORECASE,
+        )
+        if inferred_python_program:
+            artifact_stem = inferred_python_program.group(1).strip().replace("-", "_")
+            return f"{artifact_stem}.py"
+
         return ""
+
+    def task_requires_runnable_program(self) -> bool:
+        task_description = self.primary_task_text().lower()
+        return any(keyword in task_description for keyword in (" program", " script", " cli", " command-line", " calculator"))
 
     def is_logging_only_task(self) -> bool:
         if not self.state.external_log_path:
@@ -393,6 +432,23 @@ class DuckAgent:
         if orchestration_context:
             orchestration_block = f"\n\nMulti-role orchestration context:\n{orchestration_context.strip()}\n"
 
+        program_expectation_block = ""
+        if self.task_requires_runnable_program():
+            program_expectation_block = (
+                "\nProgram expectation:\n"
+                "- The task asks for a runnable program/script/CLI.\n"
+                "- Produce an executable entrypoint or main flow, not only helper functions.\n"
+                "- If you write Python code, include a main path that can actually run.\n"
+            )
+            if "calculator" in task_description.lower():
+                program_expectation_block += (
+                    "- For a calculator task, bare arithmetic helper functions are insufficient; include runnable user-facing behavior.\n"
+                )
+
+        primary_artifact_block = ""
+        if self.state.primary_artifact_path:
+            primary_artifact_block = f"\nPrimary artifact target:\n{self.state.primary_artifact_path}\n"
+
         return textwrap.dedent(
             f"""
             You are an autonomous coding agent working in a local repository.
@@ -412,6 +468,8 @@ class DuckAgent:
 
             Runtime-managed external log file:
             {self.state.external_log_path or '(none)'}
+            {primary_artifact_block}
+            {program_expectation_block}
             {orchestration_block}
 
             Return exactly one JSON object with this schema:
@@ -426,8 +484,8 @@ class DuckAgent:
             Rules:
             - Prefer small targeted edits.
             - Do not invent requirements beyond the specification.
-            - Use RUN_TESTS regularly when a test command or public test runner is available.
-            - If no test target is available, do not choose RUN_TESTS.
+            - Use RUN_TESTS whenever validation is available after material changes or before STOP.
+            - If no validation target is available yet, do not choose RUN_TESTS.
             - Use prior command output and file-write results as evidence for your next action.
             - Use WRITE_FILE only when you can provide the full file contents.
             - Use STOP only after at least one concrete action has been executed and you have observable evidence.
@@ -522,7 +580,17 @@ class DuckAgent:
 
         suffix = artifact.suffix.lower()
         if suffix == ".py":
-            command = f"python3 -m py_compile {shlex.quote(path)}"
+            content = artifact.read_text(encoding="utf-8")
+            if self.task_requires_runnable_program() and "__main__" not in content and "main(" not in content:
+                return ActionOutcome(
+                    summary=f"Python artifact {path} is missing a runnable entrypoint.",
+                    progress=False,
+                    fingerprint=f"VALIDATE:python:missing-entrypoint:{path}",
+                )
+            if self.task_requires_runnable_program():
+                command = f"python3 -m py_compile {shlex.quote(path)} && python3 {shlex.quote(path)}"
+            else:
+                command = f"python3 -m py_compile {shlex.quote(path)}"
         elif suffix == ".c":
             binary = artifact.with_suffix("")
             command = f"gcc {shlex.quote(path)} -o {shlex.quote(str(binary))} && {shlex.quote(str(binary))}"
@@ -706,6 +774,10 @@ class DuckAgent:
 
         if action["action"] == "WRITE_FILE":
             outcome = self.write_file(action["path"], action["content"])
+            if outcome.progress and outcome.path and not self.state.primary_artifact_path and self.supports_builtin_validation_path(outcome.path):
+                self.state.primary_artifact_path = outcome.path
+                if outcome.artifact_hash:
+                    self.state.current_artifact_hash = outcome.artifact_hash
             if self.should_block_repeated_action(outcome.fingerprint, outcome.progress):
                 outcome = self.stop_outcome(f"stalled: repeated equivalent write for {action['path']}")
             elif outcome.progress:
@@ -725,7 +797,7 @@ class DuckAgent:
                 outcome = ActionOutcome(summary=summary, progress=progress, fingerprint=fingerprint)
         elif action["action"] == "RUN_TESTS":
             outcome = self.run_public_tests()
-            if not self.has_test_target() and outcome.fingerprint == "RUN_TESTS:unavailable":
+            if not self.has_validation_target() and outcome.fingerprint == "RUN_TESTS:unavailable":
                 outcome = self.stop_outcome("stalled: model requested tests, but no test target or built-in validation is available")
             elif self.should_block_repeated_action(outcome.fingerprint, outcome.progress):
                 outcome = self.stop_outcome("stalled: repeated equivalent test run")
@@ -737,7 +809,7 @@ class DuckAgent:
             if self.state.completed_actions == 0:
                 raise ValueError("Refusing to STOP before executing any concrete action")
 
-            if self.state.dirty_since_test and self.has_test_target():
+            if self.state.dirty_since_test and self.has_validation_target():
                 raise ValueError("Refusing to STOP while changes have not been validated by a test run")
 
             outcome = self.stop_outcome(f"STOP accepted: {action['reason']}")

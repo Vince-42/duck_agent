@@ -14,6 +14,7 @@ class RoleProfile:
     asks_for: tuple[str, ...]
     escalate_when: tuple[str, ...]
     handoff_to: tuple[str, ...]
+    prompt_template: str = ""
 
 
 SHARED_RULES: tuple[str, ...] = (
