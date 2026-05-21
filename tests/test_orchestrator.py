@@ -50,7 +50,7 @@ class MultiRoleOrchestratorTests(unittest.TestCase):
             self.assertIn("Debugger", turn.active_role_names)
             self.assertIn("Repairer", turn.active_role_names)
             self.assertIn("Validator", turn.active_role_names)
-            self.assertIn("block STOP until tests run", turn.orchestration_context)
+            self.assertIn("block STOP until validation runs", turn.orchestration_context)
 
     def test_build_prompt_accepts_orchestration_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

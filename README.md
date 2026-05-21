@@ -54,9 +54,10 @@ The runtime now includes an orchestrator-driven **16-role multi-agent system** l
 
 - orchestrator: `orchestrator.py`
 - role registry: `roles.py`
+- structured cognition config: `agent.json`
 - execution shell + safeguards: `agent.py`
 
-This is intentionally **one orchestrator-driven multi-role system**, not 16 independent worker processes. The orchestrator activates role subsets by phase:
+This is intentionally **one structured-cognition engine**, not 16 independent worker processes. The orchestrator activates role subsets by phase:
 
 - **Understand**: Scout, Parser, Miner, Critic, Planner
 - **Build**: Architect, Builder, Minimalist, Tactician
@@ -64,6 +65,14 @@ This is intentionally **one orchestrator-driven multi-role system**, not 16 inde
 - **Govern**: Logger, Coordinator, Guardrail, Validator
 
 The final action contract stays unchanged: the orchestrator synthesizes internal role guidance into one JSON action that `DuckAgent` executes through the existing safe write / command / test flow.
+
+`agent.json` is the source of truth for:
+
+- shared rules
+- phase definitions
+- decision rules
+- memory/logging policy
+- cognitive mode prompt templates
 
 The implementation is intentionally simple and easy to inspect and can be reused whenever you want to point it at a repository task.
 
@@ -89,6 +98,12 @@ To disable the multi-role layer and fall back to the base single-agent prompt:
 
 ```bash
 python3 agent.py --single-agent
+```
+
+To point the runtime at a different structured-cognition config:
+
+```bash
+python3 agent.py --orchestrator-config /path/to/agent.json
 ```
 
 For any ad-hoc task:
@@ -181,8 +196,9 @@ These tests validate the agent scaffold itself: parsing actions, safe file write
 
 ```text
 agent.py                 # autonomous execution shell + CLI
-orchestrator.py          # multi-role turn orchestration
-roles.py                 # 16 role definitions and phase mappings
+orchestrator.py          # structured cognition mode switching
+roles.py                 # fallback 16 role definitions
+agent.json               # runtime structured-cognition config
 agent_manifest.json      # required model/tool disclosure
 agent_logs/              # required hackathon logs
 examples/                # example reusable task inputs
