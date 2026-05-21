@@ -1,12 +1,12 @@
 {
   "team_name": "duck_agent",
   "primary_model": "qwen2.5-coder:7b",
-  "provider": "Ollama with optional Grok/xAI fallback",
+  "provider": "Ollama with optional Groq Cloud fallback",
   "runtime_or_tool": "custom Python agent with orchestrator-driven multi-role system",
   "additional_models": [
     {
-      "model": "grok-4.3",
-      "provider": "xAI",
+      "model": "mixtral-8x7b-32768",
+      "provider": "Groq Cloud",
       "purpose": "optional fallback provider for agent reasoning"
     }
   ],
