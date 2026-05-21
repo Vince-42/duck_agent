@@ -102,8 +102,8 @@ class MultiRoleOrchestrator:
         return self.phase_default
 
     def active_roles_for_phase(self, phase: str) -> tuple[str, ...]:
-        ordered_names = list(self.phase_to_role_names.get(phase, ()))
-        compact_governance_roles: tuple[str, ...] = ("Coordinator", "Guardrail")
+        ordered_names = list(self.phase_to_role_names.get(phase, ()))[:3]
+        compact_governance_roles: tuple[str, ...] = ("Coordinator",)
         for role_name in compact_governance_roles:
             if role_name in self.role_index and role_name not in ordered_names:
                 ordered_names.append(role_name)
@@ -146,7 +146,7 @@ class MultiRoleOrchestrator:
     def render_role_brief(self, role_name: str) -> str:
         role = self.role_index[role_name]
         summary = role.prompt_template or role.primary_responsibility
-        return f"- {role.name} [{role.phase}]: {summary}"
+        return f"- {role.name}: {summary}"
 
     def build_orchestration_context(self, agent: DuckAgent, task_description: str, phase: str, active_roles: tuple[str, ...]) -> str:
         del task_description
@@ -154,7 +154,7 @@ class MultiRoleOrchestrator:
         shared_rules = "\n".join(f"- {rule}" for rule in self.shared_rules)
         constraints = "\n".join(f"- {rule}" for rule in self.build_constraints(agent))
         role_briefs = "\n".join(self.render_role_brief(role_name) for role_name in active_roles)
-        switching_logic = "\n".join(f"- {item}" for item in self.switching_logic[:2]) or "- Use the current phase and evidence to pick the next internal mode."
+        switching_logic = self.switching_logic[0] if self.switching_logic else "Use the current phase and evidence to pick the next internal mode."
 
         return textwrap.dedent(
             f"""
@@ -168,8 +168,7 @@ class MultiRoleOrchestrator:
             Deterministic constraints:
             {constraints}
 
-            Switching guide:
-            {switching_logic}
+            Switching guide: {switching_logic}
 
             Active mode briefs:
             {role_briefs}

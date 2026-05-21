@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from io import BytesIO
@@ -9,7 +10,7 @@ from pathlib import Path
 from urllib import error
 from unittest.mock import MagicMock, patch
 
-from agent import AgentConfig, AgentLogger, DuckAgent, build_parser, config_from_args, run_doctor
+from agent import ActionOutcome, AgentConfig, AgentLogger, DuckAgent, build_parser, config_from_args, run_doctor
 
 
 @contextmanager
@@ -47,10 +48,16 @@ class CliTests(unittest.TestCase):
                 "ship a cli tool",
                 "--task-file",
                 "custom/task.md",
+                "--provider",
+                "grok",
                 "--model",
                 "demo-model",
                 "--ollama-url",
                 "http://localhost:9999/api/generate",
+                "--grok-url",
+                "https://api.x.ai/v1",
+                "--grok-model",
+                "grok-4.3",
                 "--max-iterations",
                 "7",
                 "--solution-command",
@@ -64,8 +71,11 @@ class CliTests(unittest.TestCase):
         self.assertEqual(config.logs_dir, Path("custom-logs"))
         self.assertEqual(config.task, "ship a cli tool")
         self.assertEqual(config.task_file, Path("custom/task.md"))
+        self.assertEqual(config.provider, "grok")
         self.assertEqual(config.model, "demo-model")
         self.assertEqual(config.ollama_url, "http://localhost:9999/api/generate")
+        self.assertEqual(config.grok_url, "https://api.x.ai/v1")
+        self.assertEqual(config.grok_model, "grok-4.3")
         self.assertEqual(config.max_iterations, 7)
         self.assertEqual(config.solution_command, "python3 alt_solution.py")
 
@@ -316,6 +326,17 @@ class DuckAgentTests(unittest.TestCase):
             self.assertIn("Runtime-managed external log file:\niamthelog", prompt)
             self.assertIn("do not write to that file yourself", prompt)
 
+    def test_build_prompt_truncates_large_runtime_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.last_test_output = "x" * 2000
+            agent.state.last_action_summary = "y" * 1000
+
+            prompt = agent.build_prompt("create a calculator in python")
+
+            self.assertLess(len(prompt), 4000)
+            self.assertIn("...", prompt)
+
     def test_perform_iteration_tracks_command_output_for_next_turn(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)
@@ -440,7 +461,7 @@ class DuckAgentTests(unittest.TestCase):
                 ):
                     should_continue = agent.perform_iteration("spec body")
 
-                self.assertTrue(should_continue)
+                self.assertFalse(should_continue)
                 self.assertEqual(Path("solution.py").read_text(encoding="utf-8"), "print('hello')\n")
                 self.assertEqual(agent.state.material_changes, 1)
                 Path("solution.py").unlink()
@@ -466,7 +487,7 @@ class DuckAgentTests(unittest.TestCase):
                 ):
                     should_continue = agent.perform_iteration("create a calculator program in python")
 
-                self.assertTrue(should_continue)
+                self.assertFalse(should_continue)
                 self.assertEqual(agent.state.primary_artifact_path, "calculator.py")
 
     def test_run_public_tests_uses_builtin_validation_for_python_primary_artifact(self) -> None:
@@ -494,7 +515,78 @@ class DuckAgentTests(unittest.TestCase):
 
             self.assertEqual(result.test_exit_code, 0)
             self.assertIn("exit=0", result.summary)
-            run_command.assert_called_once()
+            self.assertGreaterEqual(run_command.call_count, 1)
+
+    def test_run_builtin_validation_checks_hello_world_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="create a hello world program in python",
+            )
+            agent = DuckAgent(config)
+            agent.state.primary_artifact_path = "hello.py"
+
+            with temporary_cwd(Path(tmp_dir)):
+                Path("hello.py").write_text(
+                    "def main():\n    print('Hello, World!')\n\nif __name__ == '__main__':\n    main()\n",
+                    encoding="utf-8",
+                )
+                completed = MagicMock()
+                completed.returncode = 0
+                completed.stdout = "Hello, World!\n"
+                completed.stderr = ""
+
+                with patch.object(agent, "run_command", return_value=completed):
+                    result = agent.run_builtin_validation()
+
+            self.assertTrue(result.progress)
+
+    def test_run_command_converts_timeout_to_structured_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+
+            with patch("agent.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="python3 demo.py", timeout=5)):
+                result = agent.run_command("python3 demo.py", timeout=5)
+
+            self.assertEqual(result.returncode, 124)
+            self.assertIn("timed out after 5s", result.stderr)
+
+    def test_perform_iteration_auto_validates_primary_artifact_without_external_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="create a hello world program in python",
+            )
+            agent = DuckAgent(config)
+
+            with temporary_cwd(Path(tmp_dir)):
+                with patch.object(
+                    agent,
+                    "call_model",
+                    return_value=json.dumps(
+                        {
+                            "action": "WRITE_FILE",
+                            "reason": "create hello world script",
+                            "path": "hello.py",
+                            "content": "def main():\n    print('Hello, World!')\n\nif __name__ == '__main__':\n    main()\n",
+                            "command": "",
+                        }
+                    ),
+                ):
+                    validation = ActionOutcome(
+                        summary="exit=0\nHello, World!\n",
+                        progress=True,
+                        fingerprint="RUN_TESTS:hello",
+                        test_exit_code=0,
+                    )
+                    with patch.object(agent, "run_builtin_validation", return_value=validation) as run_validation:
+                        should_continue = agent.perform_iteration("create a hello world program in python")
+
+                self.assertFalse(should_continue)
+                self.assertEqual(agent.state.last_test_exit_code, 0)
+                run_validation.assert_called_once()
 
     def test_run_builtin_validation_rejects_python_program_without_entrypoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -660,6 +752,30 @@ class DuckAgentTests(unittest.TestCase):
                     agent.call_model("hello")
 
             self.assertIn("qwen2.5-coder:7b", str(exc_info.exception))
+
+    def test_call_model_uses_grok_provider_when_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.config.provider = "grok"
+            agent.config.grok_url = "https://api.x.ai/v1"
+            agent.config.grok_model = "grok-4.3"
+            agent.config.grok_api_key = "secret-key"
+
+            captured_headers = {}
+
+            def fake_urlopen(http_request, timeout=120):
+                captured_headers.update(dict(http_request.header_items()))
+                fake_response = MagicMock()
+                fake_response.read.return_value = b'{"choices":[{"message":{"content":"grok-ok"}}]}'
+                fake_response.__enter__.return_value = fake_response
+                fake_response.__exit__.return_value = False
+                return fake_response
+
+            with patch("agent.request.urlopen", side_effect=fake_urlopen):
+                result = agent.call_model("hello grok")
+
+            self.assertEqual(result, "grok-ok")
+            self.assertEqual(captured_headers.get("Authorization"), "Bearer secret-key")
 
 
 if __name__ == "__main__":

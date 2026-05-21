@@ -32,7 +32,6 @@ class MultiRoleOrchestratorTests(unittest.TestCase):
             self.assertIn("Scout", turn.active_role_names)
             self.assertIn("Parser", turn.active_role_names)
             self.assertIn("Coordinator", turn.active_role_names)
-            self.assertIn("Guardrail", turn.active_role_names)
             self.assertIn("Current coordination phase: Understand", turn.orchestration_context)
 
     def test_prepare_turn_uses_verify_phase_when_changes_are_dirty(self) -> None:
@@ -49,7 +48,6 @@ class MultiRoleOrchestratorTests(unittest.TestCase):
             self.assertIn("Tester", turn.active_role_names)
             self.assertIn("Debugger", turn.active_role_names)
             self.assertIn("Repairer", turn.active_role_names)
-            self.assertIn("Validator", turn.active_role_names)
             self.assertIn("block STOP until validation runs", turn.orchestration_context)
 
     def test_build_prompt_accepts_orchestration_context(self) -> None:
