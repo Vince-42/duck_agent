@@ -490,6 +490,30 @@ class DuckAgentTests(unittest.TestCase):
                 self.assertFalse(should_continue)
                 self.assertEqual(agent.state.primary_artifact_path, "calculator.py")
 
+    def test_perform_iteration_replaces_missing_guessed_artifact_with_real_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.primary_artifact_path = "solution.py"
+
+            with temporary_cwd(Path(tmp_dir)):
+                with patch.object(
+                    agent,
+                    "call_model",
+                    return_value=json.dumps(
+                        {
+                            "action": "WRITE_FILE",
+                            "reason": "create actual artifact",
+                            "path": "calculator.py",
+                            "content": "print('2')\n",
+                            "command": "",
+                        }
+                    ),
+                ):
+                    should_continue = agent.perform_iteration("create a calculator program in python")
+
+                self.assertFalse(should_continue)
+                self.assertEqual(agent.state.primary_artifact_path, "calculator.py")
+
     def test_run_public_tests_uses_builtin_validation_for_python_primary_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = AgentConfig(
@@ -551,6 +575,16 @@ class DuckAgentTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 124)
             self.assertIn("timed out after 5s", result.stderr)
+
+    def test_perform_iteration_recovers_from_invalid_model_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+
+            with patch.object(agent, "call_model", return_value="not-json"):
+                should_continue = agent.perform_iteration("create a calculator in python")
+
+            self.assertTrue(should_continue)
+            self.assertIn("Invalid model response", agent.state.last_action_summary)
 
     def test_perform_iteration_auto_validates_primary_artifact_without_external_tests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -776,6 +810,17 @@ class DuckAgentTests(unittest.TestCase):
 
             self.assertEqual(result, "grok-ok")
             self.assertEqual(captured_headers.get("Authorization"), "Bearer secret-key")
+
+    def test_call_model_requires_api_key_for_grok_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.config.provider = "grok"
+            agent.config.grok_api_key = ""
+
+            with self.assertRaises(RuntimeError) as exc_info:
+                agent.call_model("hello grok")
+
+            self.assertIn("requires XAI_API_KEY", str(exc_info.exception))
 
 
 if __name__ == "__main__":
