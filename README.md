@@ -86,6 +86,8 @@ Primary model: `qwen2.5-coder:7b`
 
 Provider/runtime: Ollama
 
+Optional provider: Grok/xAI
+
 Additional models: none configured yet
 
 See `agent_manifest.json` for disclosure fields.
@@ -160,8 +162,24 @@ Optional environment variables:
 ```bash
 export OLLAMA_MODEL=qwen2.5-coder:7b
 export OLLAMA_URL=http://localhost:11434/api/generate
+export AGENT_PROVIDER=ollama
+export GROK_MODEL=grok-4.3
+export GROK_URL=https://api.x.ai/v1
+export XAI_API_KEY=your_xai_api_key
 export AGENT_MAX_ITERATIONS=20
 export AGENT_SOLUTION_COMMAND="python3 solution.py"
+```
+
+To prefer Grok/xAI instead of Ollama:
+
+```bash
+python3 agent.py --provider grok --grok-model grok-4.3 --grok-url https://api.x.ai/v1
+```
+
+To let the runtime try Ollama first and then Grok if configured:
+
+```bash
+python3 agent.py --provider auto
 ```
 
 ## Public test run
