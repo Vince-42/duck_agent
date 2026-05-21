@@ -202,6 +202,64 @@ class DuckAgentTests(unittest.TestCase):
             run_command.assert_called_once_with("python3 -m unittest", category="test_runs")
             self.assertIn("exit=0", result)
 
+    def test_build_prompt_reports_when_no_test_target_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+
+            prompt = agent.build_prompt("1+1")
+
+            self.assertIn("Test target available: no", prompt)
+            self.assertIn("Last action result:\nNo actions executed yet.", prompt)
+
+    def test_perform_iteration_tracks_command_output_for_next_turn(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+
+            completed = MagicMock()
+            completed.returncode = 0
+            completed.stdout = "2\n"
+            completed.stderr = ""
+
+            with patch.object(
+                agent,
+                "call_model",
+                return_value=json.dumps(
+                    {
+                        "action": "RUN_COMMAND",
+                        "reason": "evaluate expression",
+                        "path": "",
+                        "content": "",
+                        "command": "echo $((1+1))",
+                    }
+                ),
+            ):
+                with patch.object(agent, "run_command", return_value=completed):
+                    should_continue = agent.perform_iteration("1+1")
+
+            self.assertTrue(should_continue)
+            self.assertEqual(agent.completed_actions, 1)
+            self.assertIn("STDOUT: 2", agent.last_action_result)
+
+    def test_perform_iteration_refuses_stop_before_action(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+
+            with patch.object(
+                agent,
+                "call_model",
+                return_value=json.dumps(
+                    {
+                        "action": "STOP",
+                        "reason": "done",
+                        "path": "",
+                        "content": "",
+                        "command": "",
+                    }
+                ),
+            ):
+                with self.assertRaises(ValueError):
+                    agent.perform_iteration("1+1")
+
     def test_perform_iteration_writes_file_from_model_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)

@@ -142,6 +142,11 @@ class DuckAgent:
         self.logger = AgentLogger(config.logs_dir)
         self.iteration = 0
         self.last_test_output = "No tests run yet."
+        self.last_action_result = "No actions executed yet."
+        self.completed_actions = 0
+
+    def has_test_target(self) -> bool:
+        return bool(self.config.test_command) or Path("secret_spec/test_runner/run_tests.py").exists()
 
     def load_task_description(self) -> str:
         if self.config.task:
@@ -276,8 +281,13 @@ class DuckAgent:
 
             Current iteration: {self.iteration}
 
+            Test target available: {"yes" if self.has_test_target() else "no"}
+
             Last public test output:
             {self.last_test_output}
+
+            Last action result:
+            {self.last_action_result}
 
             Return exactly one JSON object with this schema:
             {{
@@ -292,8 +302,11 @@ class DuckAgent:
             - Prefer small targeted edits.
             - Do not invent requirements beyond the specification.
             - Use RUN_TESTS regularly when a test command or public test runner is available.
+            - If no test target is available, do not choose RUN_TESTS.
+            - Use prior command output and file-write results as evidence for your next action.
             - Use WRITE_FILE only when you can provide the full file contents.
-            - Use STOP only if the implementation looks complete and stable.
+            - Use STOP only after at least one concrete action has been executed and you have observable evidence.
+            - In STOP reasons, mention the evidence that justifies stopping.
             """
         ).strip()
 
@@ -317,7 +330,7 @@ class DuckAgent:
             "command": str(parsed.get("command", "")).strip(),
         }
 
-    def write_file(self, relative_path: str, content: str) -> None:
+    def write_file(self, relative_path: str, content: str) -> str:
         if not relative_path:
             raise ValueError("WRITE_FILE action requires a non-empty path")
 
@@ -330,6 +343,8 @@ class DuckAgent:
 
         path.write_text(content, encoding="utf-8")
         self.logger.write("decisions", f"WRITE_FILE {relative_path}")
+        preview = content.strip().replace("\n", " ")[:120]
+        return f"Wrote {relative_path} ({len(content)} chars). Preview: {preview}"
 
     def run_command(self, command: str, *, category: str = "commands") -> subprocess.CompletedProcess[str]:
         if not command:
@@ -374,12 +389,22 @@ class DuckAgent:
         self.logger.write("decisions", f"ACTION {action['action']}: {action['reason']}")
 
         if action["action"] == "WRITE_FILE":
-            self.write_file(action["path"], action["content"])
+            self.last_action_result = self.write_file(action["path"], action["content"])
+            self.completed_actions += 1
         elif action["action"] == "RUN_COMMAND":
-            self.run_command(action["command"])
+            result = self.run_command(action["command"])
+            self.last_action_result = (
+                f"Command `{action['command']}` finished with exit={result.returncode}. "
+                f"STDOUT: {result.stdout.strip() or '(empty)'} STDERR: {result.stderr.strip() or '(empty)'}"
+            )
+            self.completed_actions += 1
         elif action["action"] == "RUN_TESTS":
             self.last_test_output = self.run_public_tests()
+            self.last_action_result = self.last_test_output
+            self.completed_actions += 1
         elif action["action"] == "STOP":
+            if self.completed_actions == 0:
+                raise ValueError("Refusing to STOP before executing any concrete action")
             return False
 
         return True
