@@ -158,6 +158,25 @@ class DuckAgent:
             )
         return self.config.spec_path.read_text(encoding="utf-8")
 
+    @staticmethod
+    def normalize_model_response(response: str) -> str:
+        stripped = response.strip()
+
+        if not stripped.startswith("```"):
+            return stripped
+
+        lines = stripped.splitlines()
+        if not lines:
+            return stripped
+
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+
+        return "\n".join(lines).strip()
+
     def model_request_candidates(self, prompt: str) -> list[tuple[str, bytes, str]]:
         parsed_url = urlparse(self.config.ollama_url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}" if parsed_url.scheme and parsed_url.netloc else self.config.ollama_url
@@ -279,8 +298,10 @@ class DuckAgent:
         ).strip()
 
     def parse_action(self, response: str) -> dict[str, str]:
+        normalized_response = self.normalize_model_response(response)
+
         try:
-            parsed = json.loads(response)
+            parsed = json.loads(normalized_response)
         except json.JSONDecodeError as exc:
             raise ValueError(f"Model response was not valid JSON: {response}") from exc
 

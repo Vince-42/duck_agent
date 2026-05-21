@@ -145,6 +145,25 @@ class DuckAgentTests(unittest.TestCase):
             self.assertEqual(action["action"], "WRITE_FILE")
             self.assertEqual(action["path"], "solution.py")
 
+    def test_parse_action_accepts_fenced_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+
+            action = agent.parse_action(
+                """```json
+{
+  \"action\": \"RUN_COMMAND\",
+  \"reason\": \"Evaluate the task expression.\",
+  \"path\": \"\",
+  \"content\": \"\",
+  \"command\": \"echo $((1+1))\"
+}
+```"""
+            )
+
+            self.assertEqual(action["action"], "RUN_COMMAND")
+            self.assertEqual(action["command"], "echo $((1+1))")
+
     def test_parse_action_rejects_invalid_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)
