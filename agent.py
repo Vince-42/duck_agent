@@ -27,6 +27,7 @@ class AgentConfig:
     max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "20"))
     solution_command: str = os.getenv("AGENT_SOLUTION_COMMAND", "python3 solution.py")
     test_command: str = os.getenv("AGENT_TEST_COMMAND", "")
+    enable_multirole: bool = os.getenv("AGENT_MULTI_ROLE", "1").lower() not in {"0", "false", "no"}
 
 
 @dataclass
@@ -88,6 +89,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="General test command for non-hackathon tasks",
     )
     parser.add_argument(
+        "--single-agent",
+        action="store_true",
+        help="Disable the multi-role orchestrator layer and use the base single-agent prompt only",
+    )
+    parser.add_argument(
         "--doctor",
         action="store_true",
         help="Check whether the local environment looks ready to run the agent",
@@ -106,6 +112,7 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
         max_iterations=args.max_iterations,
         solution_command=args.solution_command,
         test_command=args.test_command,
+        enable_multirole=not args.single_agent,
     )
 
 
@@ -170,10 +177,13 @@ class AgentLogger:
 
 class DuckAgent:
     def __init__(self, config: AgentConfig) -> None:
+        from orchestrator import MultiRoleOrchestrator
+
         self.config = config
         self.logger = AgentLogger(config.logs_dir)
         self.state = RuntimeState()
         self.state.external_log_path = self.detect_requested_log_output_path()
+        self.orchestrator = MultiRoleOrchestrator() if config.enable_multirole else None
 
     def has_test_target(self) -> bool:
         return bool(self.config.test_command) or Path("secret_spec/test_runner/run_tests.py").exists()
@@ -378,7 +388,11 @@ class DuckAgent:
         joined_errors = "; ".join(errors_seen) if errors_seen else "no candidates tried"
         raise RuntimeError(f"Model call failed: {joined_errors}")
 
-    def build_prompt(self, task_description: str) -> str:
+    def build_prompt(self, task_description: str, orchestration_context: str = "") -> str:
+        orchestration_block = ""
+        if orchestration_context:
+            orchestration_block = f"\n\nMulti-role orchestration context:\n{orchestration_context.strip()}\n"
+
         return textwrap.dedent(
             f"""
             You are an autonomous coding agent working in a local repository.
@@ -398,6 +412,7 @@ class DuckAgent:
 
             Runtime-managed external log file:
             {self.state.external_log_path or '(none)'}
+            {orchestration_block}
 
             Return exactly one JSON object with this schema:
             {{
@@ -419,6 +434,7 @@ class DuckAgent:
             - In STOP reasons, mention the evidence that justifies stopping.
             - If a runtime-managed external log file is configured, do not write to that file yourself; the runtime maintains it.
             - Do not copy the 'Last action result' text verbatim into output files.
+            - If multi-role orchestration context is present, use it internally and still return only one final JSON action object.
             """
         ).strip()
 
@@ -667,7 +683,19 @@ class DuckAgent:
         return 0
 
     def perform_iteration(self, task_description: str) -> bool:
-        prompt = self.build_prompt(task_description)
+        orchestration_context = ""
+        if self.orchestrator is not None:
+            turn = self.orchestrator.prepare_turn(self, task_description)
+            orchestration_context = turn.orchestration_context
+            self.logger.write(
+                "decisions",
+                f"ORCHESTRATION phase={turn.phase} roles={','.join(turn.active_role_names)}",
+            )
+            self.append_external_log(
+                f"ORCHESTRATION phase={turn.phase} roles={','.join(turn.active_role_names)}"
+            )
+
+        prompt = self.build_prompt(task_description, orchestration_context=orchestration_context)
         self.logger.write("prompts", prompt)
         response = self.call_model(prompt)
         self.logger.write("decisions", f"MODEL_RESPONSE {response}")

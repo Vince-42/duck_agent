@@ -50,6 +50,21 @@ Python 3.9+
 5. log prompts, decisions, commands, test runs, and errors
 6. repeat for a bounded number of iterations
 
+The runtime now includes an orchestrator-driven **16-role multi-agent system** layered on top of the existing execution shell:
+
+- orchestrator: `orchestrator.py`
+- role registry: `roles.py`
+- execution shell + safeguards: `agent.py`
+
+This is intentionally **one orchestrator-driven multi-role system**, not 16 independent worker processes. The orchestrator activates role subsets by phase:
+
+- **Understand**: Scout, Parser, Miner, Critic, Planner
+- **Build**: Architect, Builder, Minimalist, Tactician
+- **Verify**: Tester, Debugger, Repairer, Validator
+- **Govern**: Logger, Coordinator, Guardrail, Validator
+
+The final action contract stays unchanged: the orchestrator synthesizes internal role guidance into one JSON action that `DuckAgent` executes through the existing safe write / command / test flow.
+
 The implementation is intentionally simple and easy to inspect and can be reused whenever you want to point it at a repository task.
 
 ## Model setup
@@ -68,6 +83,12 @@ Start Ollama separately, then run:
 
 ```bash
 python3 agent.py
+```
+
+To disable the multi-role layer and fall back to the base single-agent prompt:
+
+```bash
+python3 agent.py --single-agent
 ```
 
 For any ad-hoc task:
@@ -153,12 +174,15 @@ These tests validate the agent scaffold itself: parsing actions, safe file write
 - Ollama must be running locally for live agent execution.
 - The hidden specification is not in this repository yet.
 - `solution.py` is intentionally not implemented before reveal.
-- The agent loop is conservative scaffolding, not a full multi-agent framework.
+- The system uses one orchestrator-driven multi-role loop, not parallel worker agents.
+- Ollama latency still constrains how many deliberation turns are practical.
 
 ## Repository structure
 
 ```text
-agent.py                 # autonomous agent scaffold
+agent.py                 # autonomous execution shell + CLI
+orchestrator.py          # multi-role turn orchestration
+roles.py                 # 16 role definitions and phase mappings
 agent_manifest.json      # required model/tool disclosure
 agent_logs/              # required hackathon logs
 examples/                # example reusable task inputs

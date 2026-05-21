@@ -2,11 +2,11 @@
   "team_name": "duck_agent",
   "primary_model": "qwen2.5-coder:7b",
   "provider": "Ollama",
-  "runtime_or_tool": "custom Python agent",
+  "runtime_or_tool": "custom Python agent with orchestrator-driven multi-role system",
   "additional_models": [],
   "paid_frontier_models_used_after_spec_release": false,
   "copilot_or_paid_ide_assistant_used_after_spec_release": false,
   "institutional_or_work_model_quota_used_after_spec_release": false,
-  "model_configuration_location": "agent.py",
-  "notes": "Pre-reveal scaffold only. Update after the hidden task release if the setup changes."
+  "model_configuration_location": "agent.py, orchestrator.py, roles.py",
+  "notes": "The runtime uses one orchestrator-driven 16-role system layered over the existing DuckAgent execution shell. Update after the hidden task release if the setup changes."
 }
