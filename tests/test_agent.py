@@ -49,15 +49,15 @@ class CliTests(unittest.TestCase):
                 "--task-file",
                 "custom/task.md",
                 "--provider",
-                "grok",
+                "groq",
                 "--model",
                 "demo-model",
                 "--ollama-url",
                 "http://localhost:9999/api/generate",
-                "--grok-url",
-                "https://api.x.ai/v1",
-                "--grok-model",
-                "grok-4.3",
+                "--groq-url",
+                "https://api.groq.com/openai/v1",
+                "--groq-model",
+                "mixtral-8x7b-32768",
                 "--max-iterations",
                 "7",
                 "--solution-command",
@@ -71,11 +71,11 @@ class CliTests(unittest.TestCase):
         self.assertEqual(config.logs_dir, Path("custom-logs"))
         self.assertEqual(config.task, "ship a cli tool")
         self.assertEqual(config.task_file, Path("custom/task.md"))
-        self.assertEqual(config.provider, "grok")
+        self.assertEqual(config.provider, "groq")
         self.assertEqual(config.model, "demo-model")
         self.assertEqual(config.ollama_url, "http://localhost:9999/api/generate")
-        self.assertEqual(config.grok_url, "https://api.x.ai/v1")
-        self.assertEqual(config.grok_model, "grok-4.3")
+        self.assertEqual(config.groq_url, "https://api.groq.com/openai/v1")
+        self.assertEqual(config.groq_model, "mixtral-8x7b-32768")
         self.assertEqual(config.max_iterations, 7)
         self.assertEqual(config.solution_command, "python3 alt_solution.py")
 
@@ -790,37 +790,37 @@ class DuckAgentTests(unittest.TestCase):
     def test_call_model_uses_grok_provider_when_configured(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)
-            agent.config.provider = "grok"
-            agent.config.grok_url = "https://api.x.ai/v1"
-            agent.config.grok_model = "grok-4.3"
-            agent.config.grok_api_key = "secret-key"
+            agent.config.provider = "groq"
+            agent.config.groq_url = "https://api.groq.com/openai/v1"
+            agent.config.groq_model = "mixtral-8x7b-32768"
+            agent.config.groq_api_key = "secret-key"
 
             captured_headers = {}
 
             def fake_urlopen(http_request, timeout=120):
                 captured_headers.update(dict(http_request.header_items()))
                 fake_response = MagicMock()
-                fake_response.read.return_value = b'{"choices":[{"message":{"content":"grok-ok"}}]}'
+                fake_response.read.return_value = b'{"choices":[{"message":{"content":"groq-ok"}}]}'
                 fake_response.__enter__.return_value = fake_response
                 fake_response.__exit__.return_value = False
                 return fake_response
 
             with patch("agent.request.urlopen", side_effect=fake_urlopen):
-                result = agent.call_model("hello grok")
+                result = agent.call_model("hello groq")
 
-            self.assertEqual(result, "grok-ok")
+            self.assertEqual(result, "groq-ok")
             self.assertEqual(captured_headers.get("Authorization"), "Bearer secret-key")
 
     def test_call_model_requires_api_key_for_grok_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)
-            agent.config.provider = "grok"
-            agent.config.grok_api_key = ""
+            agent.config.provider = "groq"
+            agent.config.groq_api_key = ""
 
             with self.assertRaises(RuntimeError) as exc_info:
-                agent.call_model("hello grok")
+                agent.call_model("hello groq")
 
-            self.assertIn("requires XAI_API_KEY", str(exc_info.exception))
+            self.assertIn("requires GROQ_API_KEY", str(exc_info.exception))
 
 
 if __name__ == "__main__":

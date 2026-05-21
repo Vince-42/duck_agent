@@ -26,9 +26,9 @@ class AgentConfig:
     provider: str = os.getenv("AGENT_PROVIDER", "ollama")
     model: str = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
     ollama_url: str = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-    grok_model: str = os.getenv("GROK_MODEL", "grok-4.3")
-    grok_url: str = os.getenv("GROK_URL", "https://api.x.ai/v1")
-    grok_api_key: str = os.getenv("XAI_API_KEY", "")
+    groq_model: str = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
+    groq_url: str = os.getenv("GROQ_URL", "https://api.groq.com/openai/v1")
+    groq_api_key: str = os.getenv("GROQ_API_KEY", "")
     max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "20"))
     solution_command: str = os.getenv("AGENT_SOLUTION_COMMAND", "python3 solution.py")
     test_command: str = os.getenv("AGENT_TEST_COMMAND", "")
@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--provider",
         default=os.getenv("AGENT_PROVIDER", "ollama"),
-        help="Model provider to prefer: ollama, grok, or auto",
+        help="Model provider to prefer: ollama, groq, or auto",
     )
     parser.add_argument("--model", default=os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b"), help="Ollama model name")
     parser.add_argument(
@@ -84,14 +84,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ollama generate endpoint URL",
     )
     parser.add_argument(
-        "--grok-url",
-        default=os.getenv("GROK_URL", "https://api.x.ai/v1"),
-        help="Grok/xAI base URL",
+        "--groq-url",
+        default=os.getenv("GROQ_URL", "https://api.groq.com/openai/v1"),
+        help="Groq Cloud base URL",
     )
     parser.add_argument(
-        "--grok-model",
-        default=os.getenv("GROK_MODEL", "grok-4.3"),
-        help="Grok/xAI model name",
+        "--groq-model",
+        default=os.getenv("GROQ_MODEL", "mixtral-8x7b-32768"),
+        help="Groq Cloud model name",
     )
     parser.add_argument(
         "--max-iterations",
@@ -136,9 +136,9 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
         provider=args.provider,
         model=args.model,
         ollama_url=args.ollama_url,
-        grok_model=args.grok_model,
-        grok_url=args.grok_url,
-        grok_api_key=os.getenv("XAI_API_KEY", ""),
+        groq_model=args.groq_model,
+        groq_url=args.groq_url,
+        groq_api_key=os.getenv("GROQ_API_KEY", ""),
         max_iterations=args.max_iterations,
         solution_command=args.solution_command,
         test_command=args.test_command,
@@ -156,7 +156,7 @@ def run_doctor(config: AgentConfig) -> int:
     print(f"- provider: {config.provider}")
     print(f"- model: {config.model}")
     print(f"- ollama url: {config.ollama_url}")
-    print(f"- grok url: {config.grok_url}")
+    print(f"- groq url: {config.groq_url}")
 
     spec_exists = config.spec_path.exists()
     task_file_exists = True if config.task_file is None else config.task_file.exists()
@@ -368,7 +368,7 @@ class DuckAgent:
         parsed_url = urlparse(self.config.ollama_url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}" if parsed_url.scheme and parsed_url.netloc else self.config.ollama_url
         path = parsed_url.path.rstrip("/")
-        grok_base = self.config.grok_url.rstrip("/")
+        groq_base = self.config.groq_url.rstrip("/")
 
         ollama_payload = json.dumps(
             {
@@ -384,9 +384,9 @@ class DuckAgent:
                 "stream": False,
             }
         ).encode("utf-8")
-        grok_payload = json.dumps(
+        groq_payload = json.dumps(
             {
-                "model": self.config.grok_model,
+                "model": self.config.groq_model,
                 "messages": [{"role": "user", "content": prompt}],
                 "stream": False,
             }
@@ -413,16 +413,15 @@ class DuckAgent:
                 add_candidate(f"{base_url}/api/generate", ollama_payload, "ollama")
                 add_candidate(f"{base_url}/v1/chat/completions", chat_payload, "openai")
 
-        def add_grok_candidates() -> None:
-            if self.config.grok_url and self.config.grok_api_key:
-                add_candidate(f"{grok_base}/chat/completions", grok_payload, "grok")
-                add_candidate(f"{grok_base}/v1/chat/completions", grok_payload, "grok")
+        def add_groq_candidates() -> None:
+            if self.config.groq_url and self.config.groq_api_key:
+                add_candidate(f"{groq_base}/chat/completions", groq_payload, "groq")
 
-        if provider == "grok":
-            add_grok_candidates()
+        if provider == "groq":
+            add_groq_candidates()
         elif provider == "auto":
+            add_groq_candidates()
             add_ollama_candidates()
-            add_grok_candidates()
         else:
             add_ollama_candidates()
 
@@ -434,7 +433,7 @@ class DuckAgent:
         if response_type == "ollama":
             return str(parsed.get("response", "")).strip()
 
-        if response_type == "grok":
+        if response_type == "groq":
             if parsed.get("response"):
                 return str(parsed.get("response", "")).strip()
             if parsed.get("output_text"):
@@ -457,15 +456,15 @@ class DuckAgent:
         errors_seen: list[str] = []
         provider = self.config.provider.lower().strip()
 
-        if provider == "grok" and not self.config.grok_api_key:
-            raise RuntimeError("Model call failed: provider 'grok' requires XAI_API_KEY")
+        if provider == "groq" and not self.config.groq_api_key:
+            raise RuntimeError("Model call failed: provider 'groq' requires GROQ_API_KEY")
 
         model_timeout = int(os.getenv("AGENT_MODEL_TIMEOUT", "45"))
 
         for url, payload, response_type in self.model_request_candidates(prompt):
             headers = {"Content-Type": "application/json"}
-            if response_type == "grok" and self.config.grok_api_key:
-                headers["Authorization"] = f"Bearer {self.config.grok_api_key}"
+            if response_type == "groq" and self.config.groq_api_key:
+                headers["Authorization"] = f"Bearer {self.config.groq_api_key}"
             http_request = request.Request(
                 url,
                 data=payload,
