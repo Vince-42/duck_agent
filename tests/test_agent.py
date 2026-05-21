@@ -138,6 +138,18 @@ class DuckAgentTests(unittest.TestCase):
 
             self.assertEqual(agent.load_task_description(), "implement feature x")
 
+    def test_detect_requested_log_output_path_from_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="give me all the log of everything that you do in a new file called iamthelog",
+            )
+
+            agent = DuckAgent(config)
+
+            self.assertEqual(agent.state.external_log_path, "iamthelog")
+
     def test_parse_action_normalizes_response(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)
@@ -224,6 +236,16 @@ class DuckAgentTests(unittest.TestCase):
 
             self.assertIn("Test target available: no", prompt)
             self.assertIn("Last action result:\nNo actions executed yet.", prompt)
+
+    def test_build_prompt_mentions_runtime_managed_log_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.external_log_path = "iamthelog"
+
+            prompt = agent.build_prompt("log everything to iamthelog")
+
+            self.assertIn("Runtime-managed external log file:\niamthelog", prompt)
+            self.assertIn("do not write to that file yourself", prompt)
 
     def test_perform_iteration_tracks_command_output_for_next_turn(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -353,6 +375,27 @@ class DuckAgentTests(unittest.TestCase):
                 self.assertEqual(Path("solution.py").read_text(encoding="utf-8"), "print('hello')\n")
                 self.assertEqual(agent.state.material_changes, 1)
                 Path("solution.py").unlink()
+
+    def test_write_file_blocks_runtime_managed_log_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.external_log_path = "iamthelog"
+
+            outcome = agent.write_file("iamthelog", "anything")
+
+            self.assertFalse(outcome.progress)
+            self.assertIn("runtime-managed external log file", outcome.summary)
+
+    def test_print_progress_appends_to_runtime_managed_log_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.external_log_path = "iamthelog"
+
+            with temporary_cwd(Path(tmp_dir)):
+                agent.print_progress("WRITE_FILE iamthelog -> changed")
+                contents = Path("iamthelog").read_text(encoding="utf-8")
+
+            self.assertIn("WRITE_FILE iamthelog -> changed", contents)
 
     def test_run_returns_zero_when_model_requests_stop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

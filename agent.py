@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shlex
 import subprocess
 import textwrap
@@ -40,6 +41,7 @@ class RuntimeState:
     last_action_summary: str = "No actions executed yet."
     last_action_fingerprint: str = ""
     last_action_progress: bool = False
+    external_log_path: str = ""
 
 
 @dataclass
@@ -165,9 +167,40 @@ class DuckAgent:
         self.config = config
         self.logger = AgentLogger(config.logs_dir)
         self.state = RuntimeState()
+        self.state.external_log_path = self.detect_requested_log_output_path()
 
     def has_test_target(self) -> bool:
         return bool(self.config.test_command) or Path("secret_spec/test_runner/run_tests.py").exists()
+
+    def detect_requested_log_output_path(self) -> str:
+        task_description = self.config.task.strip()
+        if not task_description and self.config.task_file and self.config.task_file.exists():
+            task_description = self.config.task_file.read_text(encoding="utf-8").strip()
+
+        lowered = task_description.lower()
+        if "log of everything" not in lowered and "all the log" not in lowered and "log everything" not in lowered:
+            return ""
+
+        match = re.search(r"file called\s+([A-Za-z0-9_.\-/]+)", task_description, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+        return ""
+
+    def append_external_log(self, message: str) -> None:
+        if not self.state.external_log_path:
+            return
+
+        path = Path(self.state.external_log_path)
+        if path.is_absolute() or ".." in path.parts:
+            return
+
+        if path.parent != Path("."):
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(f"[{timestamp}] {message}\n")
 
     def load_task_description(self) -> str:
         if self.config.task:
@@ -310,6 +343,9 @@ class DuckAgent:
             Last action result:
             {self.state.last_action_summary}
 
+            Runtime-managed external log file:
+            {self.state.external_log_path or '(none)'}
+
             Return exactly one JSON object with this schema:
             {{
               "action": "WRITE_FILE" | "RUN_TESTS" | "RUN_COMMAND" | "STOP",
@@ -328,6 +364,8 @@ class DuckAgent:
             - Use WRITE_FILE only when you can provide the full file contents.
             - Use STOP only after at least one concrete action has been executed and you have observable evidence.
             - In STOP reasons, mention the evidence that justifies stopping.
+            - If a runtime-managed external log file is configured, do not write to that file yourself; the runtime maintains it.
+            - Do not copy the 'Last action result' text verbatim into output files.
             """
         ).strip()
 
@@ -367,6 +405,13 @@ class DuckAgent:
     def write_file(self, relative_path: str, content: str) -> ActionOutcome:
         if not relative_path:
             raise ValueError("WRITE_FILE action requires a non-empty path")
+
+        if self.state.external_log_path and relative_path == self.state.external_log_path:
+            return ActionOutcome(
+                summary=f"WRITE_FILE {relative_path} -> blocked (runtime-managed external log file)",
+                progress=False,
+                fingerprint=f"WRITE_FILE_BLOCKED:{relative_path}",
+            )
 
         path = Path(relative_path)
         if path.is_absolute() or ".." in path.parts:
@@ -456,6 +501,7 @@ class DuckAgent:
 
     def print_progress(self, summary: str) -> None:
         print(f"[{self.state.iteration + 1}/{self.config.max_iterations}] {summary}")
+        self.append_external_log(summary)
 
     def stop_outcome(self, reason: str) -> ActionOutcome:
         return ActionOutcome(summary=reason, progress=False, fingerprint=f"STOP:{reason}", stop=True)
@@ -465,8 +511,10 @@ class DuckAgent:
         self.logger.write("prompts", prompt)
         response = self.call_model(prompt)
         self.logger.write("decisions", f"MODEL_RESPONSE {response}")
+        self.append_external_log(f"MODEL_RESPONSE {self.normalize_model_response(response)}")
         action = self.parse_action(response)
         self.logger.write("decisions", f"ACTION {action['action']}: {action['reason']}")
+        self.append_external_log(f"ACTION {action['action']}: {action['reason']}")
 
         if action["action"] == "WRITE_FILE":
             outcome = self.write_file(action["path"], action["content"])
@@ -527,6 +575,7 @@ class DuckAgent:
 
         self.logger.write("decisions", "Starting agent loop")
         print("Starting agent loop")
+        self.append_external_log("Starting agent loop")
 
         while self.state.iteration < self.config.max_iterations:
             try:
