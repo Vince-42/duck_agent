@@ -103,8 +103,9 @@ class MultiRoleOrchestrator:
 
     def active_roles_for_phase(self, phase: str) -> tuple[str, ...]:
         ordered_names = list(self.phase_to_role_names.get(phase, ()))
-        for role_name in self.governance_role_names:
-            if role_name not in ordered_names:
+        compact_governance_roles: tuple[str, ...] = ("Coordinator", "Guardrail")
+        for role_name in compact_governance_roles:
+            if role_name in self.role_index and role_name not in ordered_names:
                 ordered_names.append(role_name)
         return tuple(ordered_names)
 
@@ -144,18 +145,8 @@ class MultiRoleOrchestrator:
 
     def render_role_brief(self, role_name: str) -> str:
         role = self.role_index[role_name]
-        lines = [
-            f"- {role.name} [{role.phase}]",
-            f"  style: {role.personality_style}",
-            f"  responsibility: {role.primary_responsibility}",
-            f"  notices first: {', '.join(role.notices_first)}",
-            f"  asks for: {', '.join(role.asks_for)}",
-            f"  escalate when: {', '.join(role.escalate_when)}",
-            f"  handoff to: {', '.join(role.handoff_to)}",
-        ]
-        if role.prompt_template:
-            lines.append(f"  mode prompt: {role.prompt_template}")
-        return "\n".join(lines)
+        summary = role.prompt_template or role.primary_responsibility
+        return f"- {role.name} [{role.phase}]: {summary}"
 
     def build_orchestration_context(self, agent: DuckAgent, task_description: str, phase: str, active_roles: tuple[str, ...]) -> str:
         del task_description
@@ -163,9 +154,7 @@ class MultiRoleOrchestrator:
         shared_rules = "\n".join(f"- {rule}" for rule in self.shared_rules)
         constraints = "\n".join(f"- {rule}" for rule in self.build_constraints(agent))
         role_briefs = "\n".join(self.render_role_brief(role_name) for role_name in active_roles)
-        switching_logic = "\n".join(f"- {item}" for item in self.switching_logic) or "- Use the current phase and evidence to pick the next internal mode."
-        memory_policy = "\n".join(f"- {item}" for item in self.memory_retention) or "- Keep only useful working memory."
-        logging_policy = "\n".join(f"- {item}" for item in self.logging_rules) or "- Log every major decision and failure."
+        switching_logic = "\n".join(f"- {item}" for item in self.switching_logic[:2]) or "- Use the current phase and evidence to pick the next internal mode."
 
         return textwrap.dedent(
             f"""
@@ -179,21 +168,15 @@ class MultiRoleOrchestrator:
             Deterministic constraints:
             {constraints}
 
-            Orchestrator switching logic:
+            Switching guide:
             {switching_logic}
-
-            Shared memory retention:
-            {memory_policy}
-
-            Logging policy:
-            {logging_policy}
 
             Active mode briefs:
             {role_briefs}
 
             Collaboration protocol:
             - Treat the active roles as temporary reasoning lenses inside one brain.
-            - Use the active modes internally to inspect the task, repo state, logs, and evidence.
+            - Use only the active modes listed above for this turn.
             - Summarize their best combined judgment into one final action.
             - Do not emit role-by-role transcripts or chain-of-thought.
             - Return exactly one JSON object matching the required action schema.

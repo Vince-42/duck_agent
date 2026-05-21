@@ -62,6 +62,18 @@ class MultiRoleOrchestratorTests(unittest.TestCase):
             self.assertIn("Current coordination phase: Build", prompt)
             self.assertIn("return only one final JSON action object", prompt)
 
+    def test_orchestration_context_is_compact_for_small_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            orchestrator = MultiRoleOrchestrator()
+
+            turn = orchestrator.prepare_turn(agent, "create a calculator in python")
+
+            self.assertLess(len(turn.orchestration_context), 4000)
+            self.assertNotIn("notices first:", turn.orchestration_context)
+            self.assertNotIn("Shared memory retention:", turn.orchestration_context)
+            self.assertNotIn("Logging policy:", turn.orchestration_context)
+
 
 if __name__ == "__main__":
     unittest.main()
