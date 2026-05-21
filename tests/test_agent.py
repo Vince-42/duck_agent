@@ -1,13 +1,25 @@
 import json
+import os
 import tempfile
 import unittest
 from io import BytesIO
 from io import StringIO
+from contextlib import contextmanager
 from pathlib import Path
 from urllib import error
 from unittest.mock import MagicMock, patch
 
 from agent import AgentConfig, AgentLogger, DuckAgent, build_parser, config_from_args, run_doctor
+
+
+@contextmanager
+def temporary_cwd(path: Path):
+    previous = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
 
 
 class AgentLoggerTests(unittest.TestCase):
@@ -184,7 +196,8 @@ class DuckAgentTests(unittest.TestCase):
 
             result = agent.run_public_tests()
 
-            self.assertEqual(result, "No test command configured and public test runner not available yet.")
+            self.assertEqual(result.summary, "No test command configured and public test runner not available yet.")
+            self.assertFalse(result.progress)
 
     def test_run_public_tests_uses_custom_test_command_when_configured(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -200,7 +213,8 @@ class DuckAgentTests(unittest.TestCase):
                 result = agent.run_public_tests()
 
             run_command.assert_called_once_with("python3 -m unittest", category="test_runs")
-            self.assertIn("exit=0", result)
+            self.assertIn("exit=0", result.summary)
+            self.assertEqual(result.test_exit_code, 0)
 
     def test_build_prompt_reports_when_no_test_target_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -237,8 +251,8 @@ class DuckAgentTests(unittest.TestCase):
                     should_continue = agent.perform_iteration("1+1")
 
             self.assertTrue(should_continue)
-            self.assertEqual(agent.completed_actions, 1)
-            self.assertIn("STDOUT: 2", agent.last_action_result)
+            self.assertEqual(agent.state.completed_actions, 1)
+            self.assertIn("STDOUT: 2", agent.state.last_action_summary)
 
     def test_perform_iteration_refuses_stop_before_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -260,28 +274,85 @@ class DuckAgentTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     agent.perform_iteration("1+1")
 
-    def test_perform_iteration_writes_file_from_model_action(self) -> None:
+    def test_perform_iteration_stops_on_repeated_noop_write(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)
+
+            repeated_write = json.dumps(
+                {
+                    "action": "WRITE_FILE",
+                    "reason": "create hello file",
+                    "path": "hello.txt",
+                    "content": "Hello, World!\n",
+                    "command": "",
+                }
+            )
+
+            with temporary_cwd(Path(tmp_dir)):
+                with patch.object(agent, "call_model", return_value=repeated_write):
+                    should_continue = agent.perform_iteration("create hello world file")
+
+                self.assertTrue(should_continue)
+                self.assertEqual(agent.state.material_changes, 1)
+
+                with patch.object(agent, "call_model", return_value=repeated_write):
+                    should_continue = agent.perform_iteration("create hello world file")
+
+                self.assertTrue(should_continue)
+
+                with patch.object(agent, "call_model", return_value=repeated_write):
+                    should_continue = agent.perform_iteration("create hello world file")
+
+                self.assertFalse(should_continue)
+                self.assertIn("stalled: repeated equivalent write", agent.state.last_action_summary)
+
+    def test_stop_requires_test_after_material_change_when_tests_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.completed_actions = 1
+            agent.state.dirty_since_test = True
+            agent.config.test_command = "python3 -m unittest"
 
             with patch.object(
                 agent,
                 "call_model",
                 return_value=json.dumps(
                     {
-                        "action": "WRITE_FILE",
-                        "reason": "create solution",
-                        "path": "solution.py",
-                        "content": "print('hello')\n",
+                        "action": "STOP",
+                        "reason": "done",
+                        "path": "",
+                        "content": "",
                         "command": "",
                     }
                 ),
             ):
-                should_continue = agent.perform_iteration("spec body")
+                with self.assertRaises(ValueError):
+                    agent.perform_iteration("create file")
 
-            self.assertTrue(should_continue)
-            self.assertEqual(Path("solution.py").read_text(encoding="utf-8"), "print('hello')\n")
-            Path("solution.py").unlink()
+    def test_perform_iteration_writes_file_from_model_action(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+
+            with temporary_cwd(Path(tmp_dir)):
+                with patch.object(
+                    agent,
+                    "call_model",
+                    return_value=json.dumps(
+                        {
+                            "action": "WRITE_FILE",
+                            "reason": "create solution",
+                            "path": "solution.py",
+                            "content": "print('hello')\n",
+                            "command": "",
+                        }
+                    ),
+                ):
+                    should_continue = agent.perform_iteration("spec body")
+
+                self.assertTrue(should_continue)
+                self.assertEqual(Path("solution.py").read_text(encoding="utf-8"), "print('hello')\n")
+                self.assertEqual(agent.state.material_changes, 1)
+                Path("solution.py").unlink()
 
     def test_run_returns_zero_when_model_requests_stop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

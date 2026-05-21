@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -25,6 +26,29 @@ class AgentConfig:
     max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "20"))
     solution_command: str = os.getenv("AGENT_SOLUTION_COMMAND", "python3 solution.py")
     test_command: str = os.getenv("AGENT_TEST_COMMAND", "")
+
+
+@dataclass
+class RuntimeState:
+    iteration: int = 0
+    completed_actions: int = 0
+    material_changes: int = 0
+    consecutive_no_progress: int = 0
+    dirty_since_test: bool = False
+    last_test_exit_code: int | None = None
+    last_test_output: str = "No tests run yet."
+    last_action_summary: str = "No actions executed yet."
+    last_action_fingerprint: str = ""
+    last_action_progress: bool = False
+
+
+@dataclass
+class ActionOutcome:
+    summary: str
+    progress: bool
+    fingerprint: str
+    stop: bool = False
+    test_exit_code: int | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -140,10 +164,7 @@ class DuckAgent:
     def __init__(self, config: AgentConfig) -> None:
         self.config = config
         self.logger = AgentLogger(config.logs_dir)
-        self.iteration = 0
-        self.last_test_output = "No tests run yet."
-        self.last_action_result = "No actions executed yet."
-        self.completed_actions = 0
+        self.state = RuntimeState()
 
     def has_test_target(self) -> bool:
         return bool(self.config.test_command) or Path("secret_spec/test_runner/run_tests.py").exists()
@@ -279,15 +300,15 @@ class DuckAgent:
             Task description:
             {task_description}
 
-            Current iteration: {self.iteration}
+            Current iteration: {self.state.iteration}
 
             Test target available: {"yes" if self.has_test_target() else "no"}
 
             Last public test output:
-            {self.last_test_output}
+            {self.state.last_test_output}
 
             Last action result:
-            {self.last_action_result}
+            {self.state.last_action_summary}
 
             Return exactly one JSON object with this schema:
             {{
@@ -330,7 +351,20 @@ class DuckAgent:
             "command": str(parsed.get("command", "")).strip(),
         }
 
-    def write_file(self, relative_path: str, content: str) -> str:
+    @staticmethod
+    def fingerprint_for_write(path: str, content: str) -> str:
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        return f"WRITE_FILE:{path}:{digest}"
+
+    @staticmethod
+    def fingerprint_for_command(command: str) -> str:
+        return f"RUN_COMMAND:{' '.join(command.split())}"
+
+    @staticmethod
+    def fingerprint_for_tests(command: str) -> str:
+        return f"RUN_TESTS:{' '.join(command.split())}"
+
+    def write_file(self, relative_path: str, content: str) -> ActionOutcome:
         if not relative_path:
             raise ValueError("WRITE_FILE action requires a non-empty path")
 
@@ -341,10 +375,24 @@ class DuckAgent:
         if path.parent != Path("."):
             path.parent.mkdir(parents=True, exist_ok=True)
 
+        fingerprint = self.fingerprint_for_write(relative_path, content)
+        previous_content = path.read_text(encoding="utf-8") if path.exists() else None
+        if previous_content == content:
+            self.logger.write("decisions", f"WRITE_FILE_NOOP {relative_path}")
+            return ActionOutcome(
+                summary=f"WRITE_FILE {relative_path} -> noop (same content)",
+                progress=False,
+                fingerprint=fingerprint,
+            )
+
         path.write_text(content, encoding="utf-8")
         self.logger.write("decisions", f"WRITE_FILE {relative_path}")
         preview = content.strip().replace("\n", " ")[:120]
-        return f"Wrote {relative_path} ({len(content)} chars). Preview: {preview}"
+        return ActionOutcome(
+            summary=f"WRITE_FILE {relative_path} -> changed ({len(content)} chars). Preview: {preview}",
+            progress=True,
+            fingerprint=fingerprint,
+        )
 
     def run_command(self, command: str, *, category: str = "commands") -> subprocess.CompletedProcess[str]:
         if not command:
@@ -362,23 +410,55 @@ class DuckAgent:
         self.logger.write(category, output)
         return result
 
-    def run_public_tests(self) -> str:
+    def run_public_tests(self) -> ActionOutcome:
         if self.config.test_command:
             result = self.run_command(self.config.test_command, category="test_runs")
-            return f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
+            output = f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
+            return ActionOutcome(
+                summary=output,
+                progress=True,
+                fingerprint=self.fingerprint_for_tests(self.config.test_command),
+                test_exit_code=result.returncode,
+            )
 
         runner = Path("secret_spec/test_runner/run_tests.py")
         if not runner.exists():
             message = "No test command configured and public test runner not available yet."
             self.logger.write("test_runs", message)
-            return message
+            return ActionOutcome(summary=message, progress=False, fingerprint="RUN_TESTS:unavailable")
 
         command = (
             f"python3 {shlex.quote(str(runner))} "
             f"--program {shlex.quote(self.config.solution_command)} --suite public"
         )
         result = self.run_command(command, category="test_runs")
-        return f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
+        output = f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
+        return ActionOutcome(
+            summary=output,
+            progress=True,
+            fingerprint=self.fingerprint_for_tests(command),
+            test_exit_code=result.returncode,
+        )
+
+    def should_block_repeated_action(self, fingerprint: str, progress: bool) -> bool:
+        return fingerprint == self.state.last_action_fingerprint and not self.state.last_action_progress and not progress
+
+    def update_state_from_outcome(self, outcome: ActionOutcome) -> None:
+        self.state.last_action_summary = outcome.summary
+        self.state.last_action_fingerprint = outcome.fingerprint
+        self.state.last_action_progress = outcome.progress
+
+        if outcome.progress:
+            self.state.completed_actions += 1
+            self.state.consecutive_no_progress = 0
+        else:
+            self.state.consecutive_no_progress += 1
+
+    def print_progress(self, summary: str) -> None:
+        print(f"[{self.state.iteration + 1}/{self.config.max_iterations}] {summary}")
+
+    def stop_outcome(self, reason: str) -> ActionOutcome:
+        return ActionOutcome(summary=reason, progress=False, fingerprint=f"STOP:{reason}", stop=True)
 
     def perform_iteration(self, task_description: str) -> bool:
         prompt = self.build_prompt(task_description)
@@ -389,22 +469,50 @@ class DuckAgent:
         self.logger.write("decisions", f"ACTION {action['action']}: {action['reason']}")
 
         if action["action"] == "WRITE_FILE":
-            self.last_action_result = self.write_file(action["path"], action["content"])
-            self.completed_actions += 1
+            outcome = self.write_file(action["path"], action["content"])
+            if self.should_block_repeated_action(outcome.fingerprint, outcome.progress):
+                outcome = self.stop_outcome(f"stalled: repeated equivalent write for {action['path']}")
+            elif outcome.progress:
+                self.state.material_changes += 1
+                self.state.dirty_since_test = True
         elif action["action"] == "RUN_COMMAND":
             result = self.run_command(action["command"])
-            self.last_action_result = (
-                f"Command `{action['command']}` finished with exit={result.returncode}. "
+            summary = (
+                f"RUN_COMMAND `{action['command']}` -> exit={result.returncode}. "
                 f"STDOUT: {result.stdout.strip() or '(empty)'} STDERR: {result.stderr.strip() or '(empty)'}"
             )
-            self.completed_actions += 1
+            fingerprint = self.fingerprint_for_command(action["command"])
+            progress = bool(result.stdout.strip() or result.stderr.strip() or result.returncode != 0)
+            if self.should_block_repeated_action(fingerprint, progress):
+                outcome = self.stop_outcome(f"stalled: repeated equivalent command `{action['command']}`")
+            else:
+                outcome = ActionOutcome(summary=summary, progress=progress, fingerprint=fingerprint)
         elif action["action"] == "RUN_TESTS":
-            self.last_test_output = self.run_public_tests()
-            self.last_action_result = self.last_test_output
-            self.completed_actions += 1
+            outcome = self.run_public_tests()
+            if not self.has_test_target():
+                outcome = self.stop_outcome("stalled: model requested tests, but no test target is available")
+            elif self.should_block_repeated_action(outcome.fingerprint, outcome.progress):
+                outcome = self.stop_outcome("stalled: repeated equivalent test run")
+            else:
+                self.state.last_test_output = outcome.summary
+                self.state.last_test_exit_code = outcome.test_exit_code
+                self.state.dirty_since_test = False
         elif action["action"] == "STOP":
-            if self.completed_actions == 0:
+            if self.state.completed_actions == 0:
                 raise ValueError("Refusing to STOP before executing any concrete action")
+
+            if self.state.dirty_since_test and self.has_test_target():
+                raise ValueError("Refusing to STOP while changes have not been validated by a test run")
+
+            outcome = self.stop_outcome(f"STOP accepted: {action['reason']}")
+
+        self.update_state_from_outcome(outcome)
+        self.print_progress(outcome.summary)
+
+        if self.state.consecutive_no_progress >= 3:
+            raise ValueError("Stopping after 3 consecutive no-progress iterations")
+
+        if outcome.stop:
             return False
 
         return True
@@ -418,21 +526,22 @@ class DuckAgent:
             return 1
 
         self.logger.write("decisions", "Starting agent loop")
+        print("Starting agent loop")
 
-        while self.iteration < self.config.max_iterations:
+        while self.state.iteration < self.config.max_iterations:
             try:
                 should_continue = self.perform_iteration(task_description)
             except Exception as exc:  # noqa: BLE001
-                self.logger.write("errors", f"Iteration {self.iteration}: {exc}")
-                print(f"Iteration {self.iteration} failed: {exc}")
+                self.logger.write("errors", f"Iteration {self.state.iteration}: {exc}")
+                print(f"Iteration {self.state.iteration} failed: {exc}")
                 return 1
 
             if not should_continue:
-                self.logger.write("decisions", f"Stopping at iteration {self.iteration}")
+                self.logger.write("decisions", f"Stopping at iteration {self.state.iteration}")
                 print("Agent requested stop.")
                 return 0
 
-            self.iteration += 1
+            self.state.iteration += 1
 
         self.logger.write("errors", "Reached maximum iteration count")
         print("Reached maximum iteration count.")
