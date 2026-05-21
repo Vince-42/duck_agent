@@ -150,6 +150,30 @@ class DuckAgentTests(unittest.TestCase):
 
             self.assertEqual(agent.state.external_log_path, "iamthelog")
 
+    def test_detect_primary_artifact_path_for_introduction_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="Generate an introduction message toward Vincent, a student at 42. I want to sell softwares products",
+            )
+
+            agent = DuckAgent(config)
+
+            self.assertEqual(agent.detect_primary_artifact_path(), "introduction.txt")
+
+    def test_detect_primary_artifact_path_for_c_hello_world_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="create a hello world program in C",
+            )
+
+            agent = DuckAgent(config)
+
+            self.assertEqual(agent.detect_primary_artifact_path(), "hello.c")
+
     def test_is_logging_only_task_detects_runtime_log_request(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = AgentConfig(
@@ -220,7 +244,10 @@ class DuckAgentTests(unittest.TestCase):
 
             result = agent.run_public_tests()
 
-            self.assertEqual(result.summary, "No test command configured and public test runner not available yet.")
+            self.assertEqual(
+                result.summary,
+                "No test command configured, public test runner not available, and no built-in validation applied yet.",
+            )
             self.assertFalse(result.progress)
 
     def test_run_public_tests_uses_custom_test_command_when_configured(self) -> None:
@@ -239,6 +266,24 @@ class DuckAgentTests(unittest.TestCase):
             run_command.assert_called_once_with("python3 -m unittest", category="test_runs")
             self.assertIn("exit=0", result.summary)
             self.assertEqual(result.test_exit_code, 0)
+
+    def test_run_public_tests_falls_back_to_builtin_c_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.primary_artifact_path = "hello.c"
+
+            with temporary_cwd(Path(tmp_dir)):
+                Path("hello.c").write_text('#include <stdio.h>\nint main(){printf("Hello\\n");return 0;}\n', encoding="utf-8")
+                completed = MagicMock()
+                completed.returncode = 0
+                completed.stdout = "Hello\n"
+                completed.stderr = ""
+
+                with patch.object(agent, "run_command", return_value=completed) as run_command:
+                    result = agent.run_public_tests()
+
+            self.assertEqual(result.test_exit_code, 0)
+            run_command.assert_called_once()
 
     def test_build_prompt_reports_when_no_test_target_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -426,6 +471,44 @@ class DuckAgentTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIn("Starting agent loop", contents)
             self.assertIn("Logging-only task completed", contents)
+
+    def test_evaluate_primary_artifact_completion_accepts_document_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="Generate an introduction message toward Vincent, a student at 42. I want to sell softwares products",
+            )
+            agent = DuckAgent(config)
+            agent.state.primary_artifact_path = "introduction.txt"
+
+            with temporary_cwd(Path(tmp_dir)):
+                Path("introduction.txt").write_text(
+                    "Hello Vincent, as a student at 42 you can build and sell software products with confidence.",
+                    encoding="utf-8",
+                )
+                outcome = agent.evaluate_primary_artifact_completion()
+
+            self.assertIsNotNone(outcome)
+            self.assertTrue(outcome.stop)
+
+    def test_evaluate_primary_artifact_completion_accepts_validated_c_program(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="create a hello world program in C",
+            )
+            agent = DuckAgent(config)
+            agent.state.primary_artifact_path = "hello.c"
+            agent.state.last_test_exit_code = 0
+
+            with temporary_cwd(Path(tmp_dir)):
+                Path("hello.c").write_text('#include <stdio.h>\nint main(){printf("Hello, World!\\n");return 0;}\n', encoding="utf-8")
+                outcome = agent.evaluate_primary_artifact_completion()
+
+            self.assertIsNotNone(outcome)
+            self.assertTrue(outcome.stop)
 
     def test_run_returns_zero_when_model_requests_stop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
