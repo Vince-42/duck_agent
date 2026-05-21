@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import socket
 import subprocess
 import textwrap
 from dataclasses import dataclass
@@ -413,19 +414,17 @@ class DuckAgent:
                 add_candidate(f"{base_url}/v1/chat/completions", chat_payload, "openai")
 
         def add_grok_candidates() -> None:
-            if self.config.grok_url:
+            if self.config.grok_url and self.config.grok_api_key:
                 add_candidate(f"{grok_base}/chat/completions", grok_payload, "grok")
                 add_candidate(f"{grok_base}/v1/chat/completions", grok_payload, "grok")
 
         if provider == "grok":
             add_grok_candidates()
-            add_ollama_candidates()
         elif provider == "auto":
             add_ollama_candidates()
             add_grok_candidates()
         else:
             add_ollama_candidates()
-            add_grok_candidates()
 
         return candidates
 
@@ -456,6 +455,12 @@ class DuckAgent:
 
     def call_model(self, prompt: str) -> str:
         errors_seen: list[str] = []
+        provider = self.config.provider.lower().strip()
+
+        if provider == "grok" and not self.config.grok_api_key:
+            raise RuntimeError("Model call failed: provider 'grok' requires XAI_API_KEY")
+
+        model_timeout = int(os.getenv("AGENT_MODEL_TIMEOUT", "45"))
 
         for url, payload, response_type in self.model_request_candidates(prompt):
             headers = {"Content-Type": "application/json"}
@@ -469,7 +474,7 @@ class DuckAgent:
             )
 
             try:
-                with request.urlopen(http_request, timeout=120) as response:
+                with request.urlopen(http_request, timeout=model_timeout) as response:
                     raw_response = response.read().decode("utf-8")
                 return self.parse_model_response(raw_response, response_type)
             except error.HTTPError as exc:
@@ -486,6 +491,9 @@ class DuckAgent:
                 continue
             except error.URLError as exc:
                 errors_seen.append(f"{url} -> {exc}")
+                continue
+            except (socket.timeout, TimeoutError) as exc:
+                errors_seen.append(f"{url} -> timed out ({exc})")
                 continue
             except (ValueError, json.JSONDecodeError) as exc:
                 errors_seen.append(f"{url} -> invalid response ({exc})")
@@ -899,16 +907,31 @@ class DuckAgent:
         response = self.call_model(prompt)
         self.logger.write("decisions", f"MODEL_RESPONSE {response}")
         self.append_external_log(f"MODEL_RESPONSE {self.normalize_model_response(response)}")
-        action = self.parse_action(response)
+        try:
+            action = self.parse_action(response)
+        except ValueError as exc:
+            outcome = ActionOutcome(
+                summary=f"Invalid model response: {exc}",
+                progress=False,
+                fingerprint="MODEL_RESPONSE_INVALID",
+            )
+            self.logger.write("errors", f"Invalid model response JSON: {self.normalize_model_response(response)} -> {exc}")
+            self.update_state_from_outcome(outcome)
+            self.print_progress(outcome.summary)
+            if self.state.consecutive_no_progress >= 3:
+                raise ValueError("Stopping after 3 consecutive no-progress iterations")
+            return True
         self.logger.write("decisions", f"ACTION {action['action']}: {action['reason']}")
         self.append_external_log(f"ACTION {action['action']}: {action['reason']}")
 
         if action["action"] == "WRITE_FILE":
             outcome = self.write_file(action["path"], action["content"])
-            if outcome.progress and outcome.path and not self.state.primary_artifact_path and self.supports_builtin_validation_path(outcome.path):
-                self.state.primary_artifact_path = outcome.path
-                if outcome.artifact_hash:
-                    self.state.current_artifact_hash = outcome.artifact_hash
+            if outcome.progress and outcome.path and self.supports_builtin_validation_path(outcome.path):
+                guessed_artifact_missing = bool(self.state.primary_artifact_path) and not Path(self.state.primary_artifact_path).exists()
+                if not self.state.primary_artifact_path or guessed_artifact_missing:
+                    self.state.primary_artifact_path = outcome.path
+                    if outcome.artifact_hash:
+                        self.state.current_artifact_hash = outcome.artifact_hash
             if self.should_block_repeated_action(outcome.fingerprint, outcome.progress):
                 outcome = self.stop_outcome(f"stalled: repeated equivalent write for {action['path']}")
             elif outcome.progress:
