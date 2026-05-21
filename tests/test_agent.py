@@ -174,6 +174,18 @@ class DuckAgentTests(unittest.TestCase):
 
             self.assertEqual(agent.detect_primary_artifact_path(), "hello.c")
 
+    def test_detect_primary_artifact_path_for_python_calculator_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="create a calculator program in python",
+            )
+
+            agent = DuckAgent(config)
+
+            self.assertEqual(agent.detect_primary_artifact_path(), "calculator.py")
+
     def test_is_logging_only_task_detects_runtime_log_request(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = AgentConfig(
@@ -432,6 +444,77 @@ class DuckAgentTests(unittest.TestCase):
                 self.assertEqual(Path("solution.py").read_text(encoding="utf-8"), "print('hello')\n")
                 self.assertEqual(agent.state.material_changes, 1)
                 Path("solution.py").unlink()
+
+    def test_perform_iteration_sets_primary_artifact_from_first_supported_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.primary_artifact_path = ""
+
+            with temporary_cwd(Path(tmp_dir)):
+                with patch.object(
+                    agent,
+                    "call_model",
+                    return_value=json.dumps(
+                        {
+                            "action": "WRITE_FILE",
+                            "reason": "create calculator",
+                            "path": "calculator.py",
+                            "content": "print('ready')\n",
+                            "command": "",
+                        }
+                    ),
+                ):
+                    should_continue = agent.perform_iteration("create a calculator program in python")
+
+                self.assertTrue(should_continue)
+                self.assertEqual(agent.state.primary_artifact_path, "calculator.py")
+
+    def test_run_public_tests_uses_builtin_validation_for_python_primary_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="create a calculator program in python",
+            )
+            agent = DuckAgent(config)
+            agent.state.primary_artifact_path = "calculator.py"
+
+            with temporary_cwd(Path(tmp_dir)):
+                Path("calculator.py").write_text(
+                    "def main():\n    print('ready')\n\nif __name__ == '__main__':\n    main()\n",
+                    encoding="utf-8",
+                )
+                completed = MagicMock()
+                completed.returncode = 0
+                completed.stdout = "ready\n"
+                completed.stderr = ""
+
+                with patch.object(agent, "run_command", return_value=completed) as run_command:
+                    result = agent.run_public_tests()
+
+            self.assertEqual(result.test_exit_code, 0)
+            self.assertIn("exit=0", result.summary)
+            run_command.assert_called_once()
+
+    def test_run_builtin_validation_rejects_python_program_without_entrypoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="create a calculator program in python",
+            )
+            agent = DuckAgent(config)
+            agent.state.primary_artifact_path = "calculator.py"
+
+            with temporary_cwd(Path(tmp_dir)):
+                Path("calculator.py").write_text(
+                    "def add(a, b):\n    return a + b\n",
+                    encoding="utf-8",
+                )
+                outcome = agent.run_builtin_validation()
+
+            self.assertFalse(outcome.progress)
+            self.assertIn("missing a runnable entrypoint", outcome.summary)
 
     def test_write_file_blocks_runtime_managed_log_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
