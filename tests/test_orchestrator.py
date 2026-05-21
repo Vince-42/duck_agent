@@ -32,7 +32,6 @@ class MultiRoleOrchestratorTests(unittest.TestCase):
             self.assertIn("Scout", turn.active_role_names)
             self.assertIn("Parser", turn.active_role_names)
             self.assertIn("Coordinator", turn.active_role_names)
-            self.assertIn("Guardrail", turn.active_role_names)
             self.assertIn("Current coordination phase: Understand", turn.orchestration_context)
 
     def test_prepare_turn_uses_verify_phase_when_changes_are_dirty(self) -> None:
@@ -49,7 +48,6 @@ class MultiRoleOrchestratorTests(unittest.TestCase):
             self.assertIn("Tester", turn.active_role_names)
             self.assertIn("Debugger", turn.active_role_names)
             self.assertIn("Repairer", turn.active_role_names)
-            self.assertIn("Validator", turn.active_role_names)
             self.assertIn("block STOP until validation runs", turn.orchestration_context)
 
     def test_build_prompt_accepts_orchestration_context(self) -> None:
@@ -61,6 +59,18 @@ class MultiRoleOrchestratorTests(unittest.TestCase):
             self.assertIn("Multi-role orchestration context:", prompt)
             self.assertIn("Current coordination phase: Build", prompt)
             self.assertIn("return only one final JSON action object", prompt)
+
+    def test_orchestration_context_is_compact_for_small_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            orchestrator = MultiRoleOrchestrator()
+
+            turn = orchestrator.prepare_turn(agent, "create a calculator in python")
+
+            self.assertLess(len(turn.orchestration_context), 4000)
+            self.assertNotIn("notices first:", turn.orchestration_context)
+            self.assertNotIn("Shared memory retention:", turn.orchestration_context)
+            self.assertNotIn("Logging policy:", turn.orchestration_context)
 
 
 if __name__ == "__main__":

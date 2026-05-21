@@ -22,8 +22,12 @@ class AgentConfig:
     logs_dir: Path = Path("agent_logs")
     task: str = ""
     task_file: Path | None = None
+    provider: str = os.getenv("AGENT_PROVIDER", "ollama")
     model: str = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
     ollama_url: str = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+    grok_model: str = os.getenv("GROK_MODEL", "grok-4.3")
+    grok_url: str = os.getenv("GROK_URL", "https://api.x.ai/v1")
+    grok_api_key: str = os.getenv("XAI_API_KEY", "")
     max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "20"))
     solution_command: str = os.getenv("AGENT_SOLUTION_COMMAND", "python3 solution.py")
     test_command: str = os.getenv("AGENT_TEST_COMMAND", "")
@@ -67,11 +71,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--logs-dir", default=str(AgentConfig.logs_dir), help="Directory for agent logs")
     parser.add_argument("--task", default="", help="Direct task text for general-purpose runs")
     parser.add_argument("--task-file", default="", help="Path to a markdown/text file describing the task")
+    parser.add_argument(
+        "--provider",
+        default=os.getenv("AGENT_PROVIDER", "ollama"),
+        help="Model provider to prefer: ollama, grok, or auto",
+    )
     parser.add_argument("--model", default=os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b"), help="Ollama model name")
     parser.add_argument(
         "--ollama-url",
         default=os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate"),
         help="Ollama generate endpoint URL",
+    )
+    parser.add_argument(
+        "--grok-url",
+        default=os.getenv("GROK_URL", "https://api.x.ai/v1"),
+        help="Grok/xAI base URL",
+    )
+    parser.add_argument(
+        "--grok-model",
+        default=os.getenv("GROK_MODEL", "grok-4.3"),
+        help="Grok/xAI model name",
     )
     parser.add_argument(
         "--max-iterations",
@@ -113,8 +132,12 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
         logs_dir=Path(args.logs_dir),
         task=args.task,
         task_file=Path(args.task_file) if args.task_file else None,
+        provider=args.provider,
         model=args.model,
         ollama_url=args.ollama_url,
+        grok_model=args.grok_model,
+        grok_url=args.grok_url,
+        grok_api_key=os.getenv("XAI_API_KEY", ""),
         max_iterations=args.max_iterations,
         solution_command=args.solution_command,
         test_command=args.test_command,
@@ -129,8 +152,10 @@ def run_doctor(config: AgentConfig) -> int:
     print(f"- task provided: {'yes' if config.task else 'no'}")
     print(f"- task file: {config.task_file if config.task_file else '(none)'}")
     print(f"- logs dir: {config.logs_dir}")
+    print(f"- provider: {config.provider}")
     print(f"- model: {config.model}")
     print(f"- ollama url: {config.ollama_url}")
+    print(f"- grok url: {config.grok_url}")
 
     spec_exists = config.spec_path.exists()
     task_file_exists = True if config.task_file is None else config.task_file.exists()
@@ -342,6 +367,7 @@ class DuckAgent:
         parsed_url = urlparse(self.config.ollama_url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}" if parsed_url.scheme and parsed_url.netloc else self.config.ollama_url
         path = parsed_url.path.rstrip("/")
+        grok_base = self.config.grok_url.rstrip("/")
 
         ollama_payload = json.dumps(
             {
@@ -357,23 +383,49 @@ class DuckAgent:
                 "stream": False,
             }
         ).encode("utf-8")
+        grok_payload = json.dumps(
+            {
+                "model": self.config.grok_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+            }
+        ).encode("utf-8")
 
         candidates: list[tuple[str, bytes, str]] = []
         seen_urls: set[str] = set()
 
         def add_candidate(url: str, payload: bytes, response_type: str) -> None:
-            if url not in seen_urls:
+            key = f"{response_type}:{url}"
+            if key not in seen_urls:
                 candidates.append((url, payload, response_type))
-                seen_urls.add(url)
+                seen_urls.add(key)
 
-        if path in {"", "/"}:
-            add_candidate(f"{base_url}/api/generate", ollama_payload, "ollama")
-            add_candidate(f"{base_url}/v1/chat/completions", chat_payload, "openai")
+        provider = self.config.provider.lower().strip()
+
+        def add_ollama_candidates() -> None:
+            if path in {"", "/"}:
+                add_candidate(f"{base_url}/api/generate", ollama_payload, "ollama")
+                add_candidate(f"{base_url}/v1/chat/completions", chat_payload, "openai")
+            else:
+                add_candidate(self.config.ollama_url, ollama_payload, "ollama")
+                add_candidate(self.config.ollama_url, chat_payload, "openai")
+                add_candidate(f"{base_url}/api/generate", ollama_payload, "ollama")
+                add_candidate(f"{base_url}/v1/chat/completions", chat_payload, "openai")
+
+        def add_grok_candidates() -> None:
+            if self.config.grok_url:
+                add_candidate(f"{grok_base}/chat/completions", grok_payload, "grok")
+                add_candidate(f"{grok_base}/v1/chat/completions", grok_payload, "grok")
+
+        if provider == "grok":
+            add_grok_candidates()
+            add_ollama_candidates()
+        elif provider == "auto":
+            add_ollama_candidates()
+            add_grok_candidates()
         else:
-            add_candidate(self.config.ollama_url, ollama_payload, "ollama")
-            add_candidate(self.config.ollama_url, chat_payload, "openai")
-            add_candidate(f"{base_url}/api/generate", ollama_payload, "ollama")
-            add_candidate(f"{base_url}/v1/chat/completions", chat_payload, "openai")
+            add_ollama_candidates()
+            add_grok_candidates()
 
         return candidates
 
@@ -382,6 +434,18 @@ class DuckAgent:
 
         if response_type == "ollama":
             return str(parsed.get("response", "")).strip()
+
+        if response_type == "grok":
+            if parsed.get("response"):
+                return str(parsed.get("response", "")).strip()
+            if parsed.get("output_text"):
+                return str(parsed.get("output_text", "")).strip()
+            if parsed.get("output") and isinstance(parsed["output"], list):
+                for item in parsed["output"]:
+                    if isinstance(item, dict):
+                        text = item.get("text") or item.get("content")
+                        if isinstance(text, str) and text.strip():
+                            return text.strip()
 
         choices = parsed.get("choices", [])
         if not choices:
@@ -394,10 +458,13 @@ class DuckAgent:
         errors_seen: list[str] = []
 
         for url, payload, response_type in self.model_request_candidates(prompt):
+            headers = {"Content-Type": "application/json"}
+            if response_type == "grok" and self.config.grok_api_key:
+                headers["Authorization"] = f"Bearer {self.config.grok_api_key}"
             http_request = request.Request(
                 url,
                 data=payload,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
                 method="POST",
             )
 
@@ -427,10 +494,23 @@ class DuckAgent:
         joined_errors = "; ".join(errors_seen) if errors_seen else "no candidates tried"
         raise RuntimeError(f"Model call failed: {joined_errors}")
 
+    @staticmethod
+    def prompt_excerpt(text: str, *, max_chars: int = 600) -> str:
+        normalized = text.strip()
+        if len(normalized) <= max_chars:
+            return normalized
+        return f"...{normalized[-max_chars:]}"
+
+    def has_external_test_target(self) -> bool:
+        return bool(self.config.test_command) or Path("secret_spec/test_runner/run_tests.py").exists()
+
     def build_prompt(self, task_description: str, orchestration_context: str = "") -> str:
         orchestration_block = ""
         if orchestration_context:
             orchestration_block = f"\n\nMulti-role orchestration context:\n{orchestration_context.strip()}\n"
+
+        last_test_output = self.prompt_excerpt(self.state.last_test_output, max_chars=500)
+        last_action_summary = self.prompt_excerpt(self.state.last_action_summary, max_chars=260)
 
         program_expectation_block = ""
         if self.task_requires_runnable_program():
@@ -443,6 +523,7 @@ class DuckAgent:
             if "calculator" in task_description.lower():
                 program_expectation_block += (
                     "- For a calculator task, bare arithmetic helper functions are insufficient; include runnable user-facing behavior.\n"
+                    "- Prefer a non-interactive path such as CLI arguments or one piped expression and exit immediately after printing the result.\n"
                 )
 
         primary_artifact_block = ""
@@ -461,10 +542,10 @@ class DuckAgent:
             Test target available: {"yes" if self.has_test_target() else "no"}
 
             Last public test output:
-            {self.state.last_test_output}
+            {last_test_output}
 
             Last action result:
-            {self.state.last_action_summary}
+            {last_action_summary}
 
             Runtime-managed external log file:
             {self.state.external_log_path or '(none)'}
@@ -579,6 +660,7 @@ class DuckAgent:
             return ActionOutcome(summary=f"Primary artifact {path} does not exist yet.", progress=False, fingerprint=f"VALIDATE:missing:{path}")
 
         suffix = artifact.suffix.lower()
+        command_timeout = 5 if self.task_requires_runnable_program() else 30
         if suffix == ".py":
             content = artifact.read_text(encoding="utf-8")
             if self.task_requires_runnable_program() and "__main__" not in content and "main(" not in content:
@@ -587,7 +669,34 @@ class DuckAgent:
                     progress=False,
                     fingerprint=f"VALIDATE:python:missing-entrypoint:{path}",
                 )
-            if self.task_requires_runnable_program():
+            lowered_task = self.primary_task_text().lower()
+            if "calculator" in lowered_task:
+                smoke_commands = [
+                    f"python3 -m py_compile {shlex.quote(path)} && python3 {shlex.quote(path)} \"1+1\"",
+                    f"python3 -m py_compile {shlex.quote(path)} && python3 {shlex.quote(path)} 1 + 1",
+                    f"python3 -m py_compile {shlex.quote(path)} && printf '1+1\n' | python3 {shlex.quote(path)}",
+                ]
+                last_failure: ActionOutcome | None = None
+                for command in smoke_commands:
+                    result = self.run_command(command, category="test_runs", timeout=5)
+                    output = f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
+                    if result.returncode == 0 and "2" in result.stdout:
+                        return ActionOutcome(
+                            summary=output,
+                            progress=True,
+                            fingerprint=self.fingerprint_for_tests(command),
+                            test_exit_code=result.returncode,
+                        )
+                    last_failure = ActionOutcome(
+                        summary=output,
+                        progress=False,
+                        fingerprint=self.fingerprint_for_tests(command),
+                        test_exit_code=result.returncode,
+                    )
+                if last_failure is not None:
+                    return last_failure
+                command = f"python3 -m py_compile {shlex.quote(path)}"
+            elif "hello world" in lowered_task:
                 command = f"python3 -m py_compile {shlex.quote(path)} && python3 {shlex.quote(path)}"
             else:
                 command = f"python3 -m py_compile {shlex.quote(path)}"
@@ -615,8 +724,15 @@ class DuckAgent:
         else:
             return ActionOutcome(summary=f"No built-in validation available for {path}.", progress=False, fingerprint=f"VALIDATE:unsupported:{path}")
 
-        result = self.run_command(command, category="test_runs")
+        result = self.run_command(command, category="test_runs", timeout=command_timeout)
         output = f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
+        if suffix == ".py" and "hello world" in self.primary_task_text().lower() and "hello" not in result.stdout.lower():
+            return ActionOutcome(
+                summary=f"{output}\nValidation expected hello-style output.",
+                progress=False,
+                fingerprint=f"VALIDATE:python:hello-output:{path}",
+                test_exit_code=result.returncode,
+            )
         return ActionOutcome(
             summary=output,
             progress=result.returncode == 0,
@@ -624,18 +740,33 @@ class DuckAgent:
             test_exit_code=result.returncode,
         )
 
-    def run_command(self, command: str, *, category: str = "commands") -> subprocess.CompletedProcess[str]:
+    def run_command(self, command: str, *, category: str = "commands", timeout: int = 120) -> subprocess.CompletedProcess[str]:
         if not command:
             raise ValueError("Command cannot be empty")
 
         self.logger.write(category, f"COMMAND {command}")
-        result = subprocess.run(
-            command,
-            shell=True,
-            text=True,
-            capture_output=True,
-            timeout=120,
-        )
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+                stdin=subprocess.DEVNULL,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout or ""
+            stderr = exc.stderr or ""
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode("utf-8", errors="replace")
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", errors="replace")
+            result = subprocess.CompletedProcess(
+                args=command,
+                returncode=124,
+                stdout=str(stdout),
+                stderr=f"Command timed out after {timeout}s. Program may be waiting for input.\n{stderr}",
+            )
         output = f"exit={result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}".strip()
         self.logger.write(category, output)
         return result
@@ -783,6 +914,19 @@ class DuckAgent:
             elif outcome.progress:
                 self.state.material_changes += 1
                 self.state.dirty_since_test = True
+                if not self.has_external_test_target() and self.state.primary_artifact_path and self.can_run_builtin_validation():
+                    test_outcome = self.run_builtin_validation()
+                    self.state.last_test_output = test_outcome.summary
+                    self.state.last_test_exit_code = test_outcome.test_exit_code
+                    self.state.dirty_since_test = test_outcome.test_exit_code not in {0, None}
+                    outcome = ActionOutcome(
+                        summary=f"{outcome.summary}\nAUTO_VALIDATION: {test_outcome.summary}",
+                        progress=outcome.progress or test_outcome.progress,
+                        fingerprint=test_outcome.fingerprint,
+                        test_exit_code=test_outcome.test_exit_code,
+                        path=outcome.path,
+                        artifact_hash=outcome.artifact_hash,
+                    )
         elif action["action"] == "RUN_COMMAND":
             result = self.run_command(action["command"])
             summary = (
