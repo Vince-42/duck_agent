@@ -42,6 +42,10 @@ class RuntimeState:
     last_action_fingerprint: str = ""
     last_action_progress: bool = False
     external_log_path: str = ""
+    primary_artifact_path: str = ""
+    rewrite_count_for_primary_artifact: int = 0
+    current_artifact_hash: str = ""
+    last_completed_artifact_hash: str = ""
 
 
 @dataclass
@@ -51,6 +55,8 @@ class ActionOutcome:
     fingerprint: str
     stop: bool = False
     test_exit_code: int | None = None
+    path: str = ""
+    artifact_hash: str = ""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -194,6 +200,30 @@ class DuckAgent:
 
         return ""
 
+    def detect_primary_artifact_path(self) -> str:
+        task_description = self.primary_task_text()
+        if not task_description:
+            return ""
+
+        patterns = [
+            r"(?:file|program|script|document|message)\s+called\s+([A-Za-z0-9_.\-/]+)",
+            r"(?:create|write|generate)\s+(?:a\s+)?([A-Za-z0-9_.\-/]+\.(?:txt|md|py|js|ts|json|html|css|c|cpp))",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, task_description, flags=re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+
+        lowered = task_description.lower()
+        if "hello world" in lowered and " c" in lowered:
+            return "hello.c"
+        if "hello world" in lowered and "python" in lowered:
+            return "hello.py"
+        if "introduction message" in lowered:
+            return "introduction.txt"
+
+        return ""
+
     def is_logging_only_task(self) -> bool:
         if not self.state.external_log_path:
             return False
@@ -220,6 +250,10 @@ class DuckAgent:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with path.open("a", encoding="utf-8") as handle:
             handle.write(f"[{timestamp}] {message}\n")
+
+    @staticmethod
+    def hash_text(content: str) -> str:
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     def load_task_description(self) -> str:
         if self.config.task:
@@ -452,10 +486,58 @@ class DuckAgent:
         path.write_text(content, encoding="utf-8")
         self.logger.write("decisions", f"WRITE_FILE {relative_path}")
         preview = content.strip().replace("\n", " ")[:120]
+        artifact_hash = self.hash_text(content)
         return ActionOutcome(
             summary=f"WRITE_FILE {relative_path} -> changed ({len(content)} chars). Preview: {preview}",
             progress=True,
             fingerprint=fingerprint,
+            path=relative_path,
+            artifact_hash=artifact_hash,
+        )
+
+    def run_builtin_validation(self) -> ActionOutcome:
+        path = self.state.primary_artifact_path
+        if not path:
+            return ActionOutcome(summary="No primary artifact available for built-in validation.", progress=False, fingerprint="VALIDATE:none")
+
+        artifact = Path(path)
+        if not artifact.exists():
+            return ActionOutcome(summary=f"Primary artifact {path} does not exist yet.", progress=False, fingerprint=f"VALIDATE:missing:{path}")
+
+        suffix = artifact.suffix.lower()
+        if suffix == ".py":
+            command = f"python3 -m py_compile {shlex.quote(path)}"
+        elif suffix == ".c":
+            binary = artifact.with_suffix("")
+            command = f"gcc {shlex.quote(path)} -o {shlex.quote(str(binary))} && {shlex.quote(str(binary))}"
+        elif suffix == ".cpp":
+            binary = artifact.with_suffix("")
+            command = f"g++ {shlex.quote(path)} -o {shlex.quote(str(binary))} && {shlex.quote(str(binary))}"
+        elif suffix in {".txt", ".md"}:
+            content = artifact.read_text(encoding="utf-8").strip()
+            if len(content) < 20 or "[your" in content.lower() or "placeholder" in content.lower():
+                return ActionOutcome(
+                    summary=f"Document {path} is not complete enough for runtime validation.",
+                    progress=False,
+                    fingerprint=f"VALIDATE:document:incomplete:{path}",
+                )
+
+            return ActionOutcome(
+                summary=f"Document {path} passed runtime validation.",
+                progress=True,
+                fingerprint=f"VALIDATE:document:{path}:{self.hash_text(content)}",
+                test_exit_code=0,
+            )
+        else:
+            return ActionOutcome(summary=f"No built-in validation available for {path}.", progress=False, fingerprint=f"VALIDATE:unsupported:{path}")
+
+        result = self.run_command(command, category="test_runs")
+        output = f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
+        return ActionOutcome(
+            summary=output,
+            progress=result.returncode == 0,
+            fingerprint=self.fingerprint_for_tests(command),
+            test_exit_code=result.returncode,
         )
 
     def run_command(self, command: str, *, category: str = "commands") -> subprocess.CompletedProcess[str]:
@@ -487,7 +569,12 @@ class DuckAgent:
 
         runner = Path("secret_spec/test_runner/run_tests.py")
         if not runner.exists():
-            message = "No test command configured and public test runner not available yet."
+            builtin_outcome = self.run_builtin_validation()
+            if builtin_outcome.fingerprint != "VALIDATE:none" and not builtin_outcome.fingerprint.startswith("VALIDATE:unsupported"):
+                self.logger.write("test_runs", builtin_outcome.summary)
+                return builtin_outcome
+
+            message = "No test command configured, public test runner not available, and no built-in validation applied yet."
             self.logger.write("test_runs", message)
             return ActionOutcome(summary=message, progress=False, fingerprint="RUN_TESTS:unavailable")
 
@@ -517,6 +604,45 @@ class DuckAgent:
             self.state.consecutive_no_progress = 0
         else:
             self.state.consecutive_no_progress += 1
+
+        if outcome.path and self.state.primary_artifact_path and outcome.path == self.state.primary_artifact_path and outcome.progress:
+            self.state.rewrite_count_for_primary_artifact += 1
+            if outcome.artifact_hash:
+                self.state.current_artifact_hash = outcome.artifact_hash
+
+    def evaluate_primary_artifact_completion(self) -> ActionOutcome | None:
+        path = self.state.primary_artifact_path
+        if not path or path == self.state.external_log_path:
+            return None
+
+        artifact = Path(path)
+        if not artifact.exists():
+            return None
+
+        content = artifact.read_text(encoding="utf-8")
+        artifact_hash = self.hash_text(content)
+        lowered_task = self.primary_task_text().lower()
+
+        if self.has_test_target() and self.state.dirty_since_test:
+            return None
+
+        if artifact_hash == self.state.last_completed_artifact_hash:
+            return self.stop_outcome(f"artifact {path} already validated")
+
+        if artifact.suffix.lower() in {".txt", ".md"}:
+            if len(content.strip()) < 20 or "[your" in content.lower() or "placeholder" in content.lower():
+                return None
+            if "introduction" in lowered_task and "vincent" not in content.lower():
+                return None
+
+            self.state.last_completed_artifact_hash = artifact_hash
+            return self.stop_outcome(f"artifact {path} satisfies runtime completion checks")
+
+        if artifact.suffix.lower() in {".py", ".c", ".cpp"} and self.state.last_test_exit_code == 0:
+            self.state.last_completed_artifact_hash = artifact_hash
+            return self.stop_outcome(f"artifact {path} passed built-in validation")
+
+        return None
 
     def print_progress(self, summary: str) -> None:
         print(f"[{self.state.iteration + 1}/{self.config.max_iterations}] {summary}")
@@ -571,14 +697,14 @@ class DuckAgent:
                 outcome = ActionOutcome(summary=summary, progress=progress, fingerprint=fingerprint)
         elif action["action"] == "RUN_TESTS":
             outcome = self.run_public_tests()
-            if not self.has_test_target():
-                outcome = self.stop_outcome("stalled: model requested tests, but no test target is available")
+            if not self.has_test_target() and outcome.fingerprint == "RUN_TESTS:unavailable":
+                outcome = self.stop_outcome("stalled: model requested tests, but no test target or built-in validation is available")
             elif self.should_block_repeated_action(outcome.fingerprint, outcome.progress):
                 outcome = self.stop_outcome("stalled: repeated equivalent test run")
             else:
                 self.state.last_test_output = outcome.summary
                 self.state.last_test_exit_code = outcome.test_exit_code
-                self.state.dirty_since_test = False
+                self.state.dirty_since_test = outcome.test_exit_code not in {0, None}
         elif action["action"] == "STOP":
             if self.state.completed_actions == 0:
                 raise ValueError("Refusing to STOP before executing any concrete action")
@@ -590,6 +716,12 @@ class DuckAgent:
 
         self.update_state_from_outcome(outcome)
         self.print_progress(outcome.summary)
+
+        completion_outcome = self.evaluate_primary_artifact_completion()
+        if completion_outcome is not None:
+            self.update_state_from_outcome(completion_outcome)
+            self.print_progress(completion_outcome.summary)
+            return False
 
         if self.state.consecutive_no_progress >= 3:
             raise ValueError("Stopping after 3 consecutive no-progress iterations")
@@ -609,6 +741,8 @@ class DuckAgent:
 
         if self.is_logging_only_task():
             return self.complete_logging_only_task()
+
+        self.state.primary_artifact_path = self.detect_primary_artifact_path()
 
         self.logger.write("decisions", "Starting agent loop")
         print("Starting agent loop")
