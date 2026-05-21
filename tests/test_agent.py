@@ -150,6 +150,18 @@ class DuckAgentTests(unittest.TestCase):
 
             self.assertEqual(agent.state.external_log_path, "iamthelog")
 
+    def test_is_logging_only_task_detects_runtime_log_request(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="give me all the log of everything that you do in a new file called iamthelog2",
+            )
+
+            agent = DuckAgent(config)
+
+            self.assertTrue(agent.is_logging_only_task())
+
     def test_parse_action_normalizes_response(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)
@@ -396,6 +408,24 @@ class DuckAgentTests(unittest.TestCase):
                 contents = Path("iamthelog").read_text(encoding="utf-8")
 
             self.assertIn("WRITE_FILE iamthelog -> changed", contents)
+
+    def test_run_completes_logging_only_task_without_model_loop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="give me all the log of everything that you do in a new file called iamthelog2",
+            )
+            agent = DuckAgent(config)
+
+            with temporary_cwd(Path(tmp_dir)):
+                with patch.object(agent, "call_model", side_effect=AssertionError("model should not be called")):
+                    exit_code = agent.run()
+                contents = Path("iamthelog2").read_text(encoding="utf-8")
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Starting agent loop", contents)
+            self.assertIn("Logging-only task completed", contents)
 
     def test_run_returns_zero_when_model_requests_stop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

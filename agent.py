@@ -172,10 +172,17 @@ class DuckAgent:
     def has_test_target(self) -> bool:
         return bool(self.config.test_command) or Path("secret_spec/test_runner/run_tests.py").exists()
 
+    def primary_task_text(self) -> str:
+        if self.config.task:
+            return self.config.task.strip()
+
+        if self.config.task_file and self.config.task_file.exists():
+            return self.config.task_file.read_text(encoding="utf-8").strip()
+
+        return ""
+
     def detect_requested_log_output_path(self) -> str:
-        task_description = self.config.task.strip()
-        if not task_description and self.config.task_file and self.config.task_file.exists():
-            task_description = self.config.task_file.read_text(encoding="utf-8").strip()
+        task_description = self.primary_task_text()
 
         lowered = task_description.lower()
         if "log of everything" not in lowered and "all the log" not in lowered and "log everything" not in lowered:
@@ -186,6 +193,18 @@ class DuckAgent:
             return match.group(1).strip()
 
         return ""
+
+    def is_logging_only_task(self) -> bool:
+        if not self.state.external_log_path:
+            return False
+
+        task_description = self.primary_task_text().lower()
+        logging_phrases = ["log of everything", "all the log", "log everything"]
+        setup_phrases = ["new file called", "file called", "in a new file"]
+
+        return any(phrase in task_description for phrase in logging_phrases) and any(
+            phrase in task_description for phrase in setup_phrases
+        )
 
     def append_external_log(self, message: str) -> None:
         if not self.state.external_log_path:
@@ -506,6 +525,21 @@ class DuckAgent:
     def stop_outcome(self, reason: str) -> ActionOutcome:
         return ActionOutcome(summary=reason, progress=False, fingerprint=f"STOP:{reason}", stop=True)
 
+    def complete_logging_only_task(self) -> int:
+        path = self.state.external_log_path
+        if not path:
+            return 1
+
+        print("Starting agent loop")
+        print(f"Runtime-managed external log file: {path}")
+        self.append_external_log("Starting agent loop")
+        self.append_external_log(f"Runtime-managed external log file: {path}")
+        completion_message = f"Logging-only task completed: runtime is writing activity to {path}"
+        print(f"[done] {completion_message}")
+        self.append_external_log(completion_message)
+        self.logger.write("decisions", "Completed logging-only task without model loop")
+        return 0
+
     def perform_iteration(self, task_description: str) -> bool:
         prompt = self.build_prompt(task_description)
         self.logger.write("prompts", prompt)
@@ -572,6 +606,9 @@ class DuckAgent:
             self.logger.write("errors", str(exc))
             print(exc)
             return 1
+
+        if self.is_logging_only_task():
+            return self.complete_logging_only_task()
 
         self.logger.write("decisions", "Starting agent loop")
         print("Starting agent loop")
