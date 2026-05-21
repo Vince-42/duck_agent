@@ -4,6 +4,10 @@ Team repository for the 42 Berlin x Needle Agent Hackathon.
 
 This repository is structured for the **team submission**, not the public event-materials repo. It contains a reusable local coding agent plus the hackathon submission files and logs.
 
+## Members
+
+- Vince Jonas Manoa Hossam
+
 ## Team members
 
 - Vince Jonas Manoa Hossam
