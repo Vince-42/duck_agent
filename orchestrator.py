@@ -96,7 +96,7 @@ class MultiRoleOrchestrator:
         if agent.state.completed_actions == 0:
             return self.phase_initial
 
-        if agent.state.last_test_exit_code not in {None, 0}:
+        if agent.state.dirty_since_test and agent.has_validation_target():
             return self.phase_dirty
 
         return self.phase_default
