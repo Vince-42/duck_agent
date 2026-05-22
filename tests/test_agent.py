@@ -264,7 +264,8 @@ class DuckAgentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)
 
-            result = agent.run_public_tests()
+            with temporary_cwd(Path(tmp_dir)):
+                result = agent.run_public_tests()
 
             self.assertEqual(
                 result.summary,
@@ -311,7 +312,8 @@ class DuckAgentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)
 
-            prompt = agent.build_prompt("1+1")
+            with temporary_cwd(Path(tmp_dir)):
+                prompt = agent.build_prompt("1+1")
 
             self.assertIn("Test target available: no", prompt)
             self.assertIn("Last action result:\nNo actions executed yet.", prompt)
@@ -383,8 +385,10 @@ class DuckAgentTests(unittest.TestCase):
                     }
                 ),
             ):
-                with self.assertRaises(ValueError):
-                    agent.perform_iteration("1+1")
+                should_continue = agent.perform_iteration("1+1")
+
+            self.assertTrue(should_continue)
+            self.assertIn("Action rejected: Refusing to STOP before executing any concrete action", agent.state.last_action_summary)
 
     def test_perform_iteration_stops_on_repeated_noop_write(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -438,8 +442,10 @@ class DuckAgentTests(unittest.TestCase):
                     }
                 ),
             ):
-                with self.assertRaises(ValueError):
-                    agent.perform_iteration("create file")
+                should_continue = agent.perform_iteration("create file")
+
+            self.assertTrue(should_continue)
+            self.assertIn("Action rejected: Refusing to STOP while changes have not been validated", agent.state.last_action_summary)
 
     def test_perform_iteration_writes_file_from_model_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
