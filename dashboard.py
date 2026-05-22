@@ -20,6 +20,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Set
 import logging
+import threading
 
 try:
     import websockets
@@ -210,7 +211,7 @@ class DashboardServer:
                 logger.error(f"Broadcast error: {e}")
                 await asyncio.sleep(1)
     
-    async def handler(self, websocket, path):
+    async def handler(self, websocket):
         """Handle WebSocket connections."""
         self.clients.add(websocket)
         logger.info(f"Client connected. Total: {len(self.clients)}")
@@ -501,13 +502,20 @@ def get_html_page() -> str:
 
 class HTTPHandler(SimpleHTTPRequestHandler):
     """Simple HTTP handler that serves the dashboard HTML."""
+
+    ws_port = 8081
     
     def do_GET(self):
         if self.path == '/' or self.path == '/index.html':
             self.send_response(200)
             self.send_header('Content-type', 'text/html; charset=utf-8')
             self.end_headers()
-            self.wfile.write(get_html_page().encode())
+            html = get_html_page()
+            html = html.replace("'ws://' + window.location.host", f"'ws://' + window.location.hostname + ':{self.ws_port}'")
+            self.wfile.write(html.encode())
+        elif self.path == '/favicon.ico':
+            self.send_response(204)
+            self.end_headers()
         else:
             self.send_response(404)
             self.end_headers()
@@ -518,24 +526,21 @@ class HTTPHandler(SimpleHTTPRequestHandler):
 
 async def run_servers(http_port: int, ws_port: int, log_dir: Path):
     """Run both HTTP and WebSocket servers."""
-    
-    # HTTP server in a thread
-    http_server = HTTPServer(('0.0.0.0', http_port), HTTPHandler)
+    HTTPHandler.ws_port = ws_port
+    try:
+        http_server = HTTPServer(('0.0.0.0', http_port), HTTPHandler)
+    except OSError as exc:
+        raise OSError(f"HTTP port {http_port} is unavailable. Choose another with --port.") from exc
     logger.info(f"HTTP server started on http://localhost:{http_port}")
-    
-    def run_http():
-        try:
-            http_server.handle_request()
-        except KeyboardInterrupt:
-            pass
-    
-    # Run HTTP server in thread
-    import threading
-    http_thread = threading.Thread(target=lambda: None)  # Placeholder
-    
-    # Run WebSocket server
+
+    http_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+    http_thread.start()
+
     dashboard = DashboardServer(log_dir, host='0.0.0.0', port=ws_port)
-    await dashboard.start()
+    try:
+        await dashboard.start()
+    finally:
+        http_server.shutdown()
 
 
 if __name__ == "__main__":
@@ -550,12 +555,12 @@ if __name__ == "__main__":
     if not log_dir.exists():
         logger.error(f"Log directory not found: {log_dir}")
         exit(1)
-    
+
     try:
-        # Run WebSocket server
-        dashboard = DashboardServer(log_dir, host='0.0.0.0', port=args.ws_port)
-        logger.info(f"Dashboard UI: http://localhost:{args.port}")
-        logger.info(f"WebSocket: ws://localhost:{args.ws_port}")
-        asyncio.run(dashboard.start())
+        logger.info(f"Open dashboard in browser: http://localhost:{args.port}")
+        logger.info(f"Internal WebSocket endpoint: ws://localhost:{args.ws_port}")
+        asyncio.run(run_servers(args.port, args.ws_port, log_dir))
     except KeyboardInterrupt:
         logger.info("Dashboard stopped")
+    except OSError as exc:
+        logger.error(str(exc))
