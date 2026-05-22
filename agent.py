@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -46,7 +47,10 @@ class RuntimeState:
     repeated_action_count: int = 0
     dirty_since_test: bool = False
     last_test_exit_code: int | None = None
+    last_test_fingerprint: str = ""
     last_test_output: str = "No tests run yet."
+    last_validation_passes: list[str] = field(default_factory=list)
+    last_validation_failures: list[str] = field(default_factory=list)
     last_action_summary: str = "No actions executed yet."
     last_action_fingerprint: str = ""
     last_action_progress: bool = False
@@ -55,6 +59,10 @@ class RuntimeState:
     rewrite_count_for_primary_artifact: int = 0
     current_artifact_hash: str = ""
     last_completed_artifact_hash: str = ""
+    best_validation_score: int = 0
+    best_validation_artifact_hash: str = ""
+    rewrite_stagnation_count: int = 0
+    invalid_response_streak: int = 0
     spec_pages: list[str] = field(default_factory=list)
     current_spec_page: int = 0
 
@@ -68,10 +76,13 @@ class ActionOutcome:
     test_exit_code: int | None = None
     path: str = ""
     artifact_hash: str = ""
+    validation_passes: list[str] = field(default_factory=list)
+    validation_failures: list[str] = field(default_factory=list)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the duck_agent hackathon scaffold.")
+    parser.add_argument("requirement_file", nargs="?", help="Requirement/spec file to run, equivalent to --spec-path")
     parser.add_argument("--spec-path", default=str(AgentConfig.spec_path), help="Path to the spec markdown file")
     parser.add_argument("--logs-dir", default=str(AgentConfig.logs_dir), help="Directory for agent logs")
     parser.add_argument("--task", default="", help="Direct task text for general-purpose runs")
@@ -138,7 +149,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def config_from_args(args: argparse.Namespace) -> AgentConfig:
-    spec_path = Path(args.spec_path)
+    spec_path = Path(args.requirement_file or args.spec_path)
     if spec_path.is_dir():
         spec_path = spec_path / "SECRET_SPEC.md"
     return AgentConfig(
@@ -239,8 +250,15 @@ class DuckAgent:
     def has_test_target(self) -> bool:
         return self.has_validation_target()
 
+    def public_test_runner_path(self) -> Path | None:
+        candidates = [self.config.spec_path.parent / "test_runner" / "run_tests.py", Path("secret_spec/test_runner/run_tests.py")]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
     def has_validation_target(self) -> bool:
-        return bool(self.config.test_command) or Path("secret_spec/test_runner/run_tests.py").exists() or self.can_run_builtin_validation()
+        return bool(self.config.test_command) or self.public_test_runner_path() is not None or self.can_run_builtin_validation()
 
     def supports_builtin_validation_path(self, relative_path: str) -> bool:
         return Path(relative_path).suffix.lower() in {".py", ".c", ".cpp", ".txt", ".md"}
@@ -254,12 +272,22 @@ class DuckAgent:
             return False
         return self.supports_builtin_validation_path(path)
 
+    def resolved_write_path(self, requested_path: str) -> str:
+        if requested_path:
+            return requested_path
+        if self.state.primary_artifact_path:
+            return self.state.primary_artifact_path
+        return self.detect_primary_artifact_path()
+
     def primary_task_text(self) -> str:
         if self.config.task:
             return self.config.task.strip()
 
         if self.config.task_file and self.config.task_file.exists():
             return self.config.task_file.read_text(encoding="utf-8").strip()
+
+        if self.config.spec_path.exists():
+            return self.config.spec_path.read_text(encoding="utf-8").strip()
 
         return ""
 
@@ -317,6 +345,40 @@ class DuckAgent:
     def task_requires_runnable_program(self) -> bool:
         task_description = self.primary_task_text().lower()
         return any(keyword in task_description for keyword in (" program", " script", " cli", " command-line", " calculator"))
+
+    def task_requests_json_stdout(self) -> bool:
+        task_description = self.primary_task_text().lower()
+        return "json object" in task_description or "json" in task_description
+
+    def task_looks_like_file_processing_cli(self) -> bool:
+        task_description = self.primary_task_text().lower()
+        file_markers = ("input file", "input-file", "<input-file>", "read a utf-8 text file", "reads a utf-8 text file", "read a text file", "reads a text file")
+        return self.task_requires_runnable_program() and self.task_requests_json_stdout() and any(marker in task_description for marker in file_markers)
+
+    def task_requests_text_stats_fields(self) -> bool:
+        task_description = self.primary_task_text().lower()
+        required_fields = ("line_count", "word_count", "char_count", "top_words")
+        return all(field in task_description for field in required_fields)
+
+    def task_requests_top_n_option(self) -> bool:
+        task_description = self.primary_task_text().lower()
+        return "--top n" in task_description or "--top" in task_description
+
+    def task_requests_missing_file_json_error(self) -> bool:
+        task_description = self.primary_task_text().lower()
+        return "input file does not exist" in task_description or "file does not exist" in task_description
+
+    @staticmethod
+    def validation_score(passed: list[str], failed: list[str]) -> int:
+        return len(set(passed)) - len(set(failed))
+
+    @staticmethod
+    def is_destructive_rewrite(previous_content: str, new_content: str) -> bool:
+        if not previous_content.strip() or not new_content.strip():
+            return False
+        similarity = difflib.SequenceMatcher(a=previous_content, b=new_content).ratio()
+        length_ratio = len(new_content) / max(len(previous_content), 1)
+        return similarity < 0.45 or length_ratio < 0.5 or length_ratio > 2.0
 
     def is_logging_only_task(self) -> bool:
         if not self.state.external_log_path:
@@ -528,7 +590,7 @@ class DuckAgent:
         return f"...{normalized[-max_chars:]}"
 
     def has_external_test_target(self) -> bool:
-        return bool(self.config.test_command) or Path("secret_spec/test_runner/run_tests.py").exists()
+        return bool(self.config.test_command) or self.public_test_runner_path() is not None
 
     @staticmethod
     def _split_spec(text: str, chunk_size: int) -> list[str]:
@@ -574,6 +636,64 @@ class DuckAgent:
         if self.state.primary_artifact_path:
             primary_artifact_block = f"\nPrimary artifact target:\n{self.state.primary_artifact_path}\n"
 
+        write_path_guidance_block = ""
+        if self.state.primary_artifact_path:
+            write_path_guidance_block = (
+                "\nWrite target guidance:\n"
+                f"- When using WRITE_FILE, set path to {self.state.primary_artifact_path}.\n"
+                "- Do not leave WRITE_FILE.path empty.\n"
+            )
+
+        repair_guidance_block = ""
+        if self.state.primary_artifact_path and self.state.last_test_output != "No tests run yet.":
+            repair_guidance_block = (
+                "\nRepair guidance:\n"
+                f"- Repair {self.state.primary_artifact_path} in place instead of restarting from scratch.\n"
+                "- Use the latest validation output to make the smallest correction that addresses the failure.\n"
+                "- Do not rewrite the requirements or prompt text into the program file.\n"
+            )
+
+        convergence_guidance_block = ""
+        if self.state.primary_artifact_path and (self.state.last_validation_passes or self.state.last_validation_failures):
+            passed = ", ".join(self.state.last_validation_passes) if self.state.last_validation_passes else "none"
+            failed = ", ".join(self.state.last_validation_failures) if self.state.last_validation_failures else "none"
+            convergence_guidance_block = (
+                "\nValidation feedback:\n"
+                f"- Passed checks: {passed}.\n"
+                f"- Failing checks: {failed}.\n"
+                "- Keep the parts that already pass. Change only the failing parts unless a minimal patch is impossible.\n"
+            )
+            if self.state.rewrite_stagnation_count >= 2:
+                convergence_guidance_block += (
+                    f"- Convergence warning: {self.state.primary_artifact_path} has been rewritten {self.state.rewrite_stagnation_count} times without full validation success.\n"
+                    "- Do not restart from scratch. Patch the current file structure.\n"
+                )
+
+        json_recovery_guidance_block = ""
+        if self.state.invalid_response_streak > 0:
+            json_recovery_guidance_block = (
+                "\nResponse format warning:\n"
+                "- Your previous response was malformed JSON.\n"
+                "- Return one raw JSON object only, with properly escaped newlines and quotes.\n"
+                "- Do not use markdown fences.\n"
+            )
+
+        validation_guidance_block = ""
+        runner = self.public_test_runner_path()
+        if runner and self.state.primary_artifact_path == "solution.py":
+            runner_command = f"python3 {shlex.quote(str(runner))} --compiler 'python3 solution.py' --suite public --failures 10"
+            debug_command = "python3 solution.py compile <test_file>"
+            category_command = f"python3 {shlex.quote(str(runner))} --compiler \"python3 solution.py\" --category level_0N_XXXX --failures 10"
+            expected_dir = runner.parents[1] / "expected_outputs"
+            validation_guidance_block = (
+                "\nValidation workflow:\n"
+                "- Write your code to solution.py, not knit.py. The runner calls 'python3 solution.py compile <file>'.\n"
+                f"- Use RUN_COMMAND like \"{debug_command}\" to debug individual cases.\n"
+                f"- Use RUN_TESTS to run the full public test suite with \"{runner_command}\"\n"
+                f"- Debug repeat tests first by running: {category_command}\n"
+                f"- If tests report \"stale expected output\", touch the expected files under {expected_dir}.\n"
+            )
+
         comprehension_phase_block = ""
         if self.state.iteration == 0:
             comprehension_phase_block = textwrap.dedent("""\
@@ -614,18 +734,23 @@ class DuckAgent:
 
             Test target available: {test_target}
 
-            Last public test output:
+            Last test output:
             {last_test_output}
 
             Last action result:
             {last_action_summary}
 
-             Runtime-managed external log file:
-             {external_log}
-             {primary_artifact_block}
-             {program_expectation_block}
-             {comprehension_phase_block}
-             {orchestration_block}
+            Runtime-managed external log file:
+            {external_log}
+            {primary_artifact_block}
+            {write_path_guidance_block}
+            {repair_guidance_block}
+            {convergence_guidance_block}
+            {json_recovery_guidance_block}
+            {program_expectation_block}
+            {validation_guidance_block}
+            {comprehension_phase_block}
+            {orchestration_block}
 
             Return exactly one JSON object with this schema:
             {{
@@ -647,12 +772,8 @@ class DuckAgent:
             - In STOP reasons, mention the evidence that justifies stopping.
             - If a runtime-managed external log file is configured, do not write to that file yourself; the runtime maintains it.
             - Do not copy the 'Last action result' text verbatim into output files.
+            - Do not copy the task description, requirements markdown, or prompt/rules text into output files.
             - If multi-role orchestration context is present, use it internally and still return only one final JSON action object.
-            - Write your code to solution.py, not knit.py. The test runner uses 'python3 solution.py compile <file>'.
-            - Use RUN_COMMAND like "python3 solution.py compile <test_file>" to debug individual cases.
-            - Use RUN_TESTS to run the full public test suite with "python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public --failures 10"
-            - Debug repeat tests first by running: python3 secret_spec/test_runner/run_tests.py --compiler "python3 solution.py" --category level_0N_XXXX --failures 10
-            - If tests report "stale expected output", touch the expected files: find secret_spec/expected_outputs -name '*.expected.json' -exec touch {{}} +
         """)
 
         prompt_without_task = template.format(
@@ -663,7 +784,12 @@ class DuckAgent:
             last_action_summary=last_action_summary,
             external_log=external_log,
             primary_artifact_block=primary_artifact_block,
+            write_path_guidance_block=write_path_guidance_block,
+            repair_guidance_block=repair_guidance_block,
+            convergence_guidance_block=convergence_guidance_block,
+            json_recovery_guidance_block=json_recovery_guidance_block,
             program_expectation_block=program_expectation_block,
+            validation_guidance_block=validation_guidance_block,
             comprehension_phase_block=comprehension_phase_block,
             orchestration_block=orchestration_block,
         ).strip()
@@ -693,7 +819,12 @@ class DuckAgent:
             last_action_summary=last_action_summary,
             external_log=external_log,
             primary_artifact_block=primary_artifact_block,
+            write_path_guidance_block=write_path_guidance_block,
+            repair_guidance_block=repair_guidance_block,
+            convergence_guidance_block=convergence_guidance_block,
+            json_recovery_guidance_block=json_recovery_guidance_block,
             program_expectation_block=program_expectation_block,
+            validation_guidance_block=validation_guidance_block,
             comprehension_phase_block=comprehension_phase_block,
             orchestration_block=orchestration_block,
         ).strip()
@@ -719,6 +850,32 @@ class DuckAgent:
             "content": str(parsed.get("content", "")),
             "command": str(parsed.get("command", "")).strip(),
         }
+
+    def recover_action_from_invalid_response(self, invalid_response: str) -> dict[str, str] | None:
+        recovery_prompt = textwrap.dedent(f"""\
+            Reformat the following invalid model response into one valid JSON object only.
+
+            Required schema:
+            {{
+              "action": "WRITE_FILE" | "RUN_TESTS" | "RUN_COMMAND" | "STOP",
+              "reason": "short explanation",
+              "path": "relative/path/or-empty-string",
+              "content": "full file contents or empty string",
+              "command": "shell command or empty string"
+            }}
+
+            Rules:
+            - Return raw JSON only.
+            - No markdown fences.
+            - Escape all embedded newlines correctly.
+            - Preserve the original intended action as closely as possible.
+
+            Invalid response:
+            {invalid_response}
+        """)
+        recovered_response = self.call_model(recovery_prompt)
+        self.logger.write("decisions", f"MODEL_RESPONSE_RECOVERY {recovered_response}")
+        return self.parse_action(recovered_response)
 
     @staticmethod
     def fingerprint_for_write(path: str, content: str) -> str:
@@ -761,12 +918,28 @@ class DuckAgent:
                 fingerprint=fingerprint,
             )
 
+        if (
+            previous_content is not None
+            and relative_path == self.state.primary_artifact_path
+            and self.state.best_validation_score > 0
+            and self.state.last_validation_failures
+            and self.is_destructive_rewrite(previous_content, content)
+        ):
+            failing_checks = ", ".join(self.state.last_validation_failures)
+            return ActionOutcome(
+                summary=(
+                    f"WRITE_FILE {relative_path} -> blocked (destructive rewrite after partial validation success). "
+                    f"Preserve passing behavior and repair only: {failing_checks}."
+                ),
+                progress=False,
+                fingerprint=f"WRITE_FILE_BLOCKED:destructive:{relative_path}",
+            )
+
         path.write_text(content, encoding="utf-8")
         self.logger.write("decisions", f"WRITE_FILE {relative_path}")
-        preview = content.strip().replace("\n", " ")[:120]
         artifact_hash = self.hash_text(content)
         return ActionOutcome(
-            summary=f"WRITE_FILE {relative_path} -> changed ({len(content)} chars). Preview: {preview}",
+            summary=f"WRITE_FILE {relative_path} -> changed ({len(content)} chars).",
             progress=True,
             fingerprint=fingerprint,
             path=relative_path,
@@ -791,6 +964,7 @@ class DuckAgent:
                     summary=f"Python artifact {path} is missing a runnable entrypoint.",
                     progress=False,
                     fingerprint=f"VALIDATE:python:missing-entrypoint:{path}",
+                    validation_failures=["syntax"],
                 )
             lowered_task = self.primary_task_text().lower()
             if "calculator" in lowered_task:
@@ -809,18 +983,24 @@ class DuckAgent:
                             progress=True,
                             fingerprint=self.fingerprint_for_tests(command),
                             test_exit_code=result.returncode,
+                            validation_passes=["syntax"],
                         )
                     last_failure = ActionOutcome(
                         summary=output,
                         progress=False,
                         fingerprint=self.fingerprint_for_tests(command),
                         test_exit_code=result.returncode,
+                        validation_failures=["syntax"],
                     )
                 if last_failure is not None:
                     return last_failure
                 command = f"python3 -m py_compile {shlex.quote(path)}"
             elif "hello world" in lowered_task:
                 command = f"python3 -m py_compile {shlex.quote(path)} && python3 {shlex.quote(path)}"
+            elif self.task_looks_like_file_processing_cli():
+                sample_input = Path(".agent_validation_input.txt")
+                sample_input.write_text("Hello world! Hello agent.\nThis is a sample file.\n", encoding="utf-8")
+                command = f"python3 -m py_compile {shlex.quote(path)} && python3 {shlex.quote(path)} {shlex.quote(str(sample_input))}"
             else:
                 command = f"python3 -m py_compile {shlex.quote(path)}"
         elif suffix == ".c":
@@ -843,6 +1023,7 @@ class DuckAgent:
                 progress=True,
                 fingerprint=f"VALIDATE:document:{path}:{self.hash_text(content)}",
                 test_exit_code=0,
+                validation_passes=["semantic_counts"],
             )
         else:
             return ActionOutcome(summary=f"No built-in validation available for {path}.", progress=False, fingerprint=f"VALIDATE:unsupported:{path}")
@@ -854,14 +1035,152 @@ class DuckAgent:
                 summary=f"{output}\nValidation expected hello-style output.",
                 progress=False,
                 fingerprint=f"VALIDATE:python:hello-output:{path}",
-                test_exit_code=result.returncode,
+                test_exit_code=1,
+                validation_passes=["syntax"],
+                validation_failures=["stdout_json"],
             )
-        return ActionOutcome(
-            summary=output,
-            progress=result.returncode == 0,
-            fingerprint=self.fingerprint_for_tests(command),
-            test_exit_code=result.returncode,
-        )
+        if suffix == ".py" and self.task_looks_like_file_processing_cli() and result.returncode == 0:
+            validation_passes = ["syntax"]
+            try:
+                parsed_output = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return ActionOutcome(
+                    summary=f"{output}\nValidation expected exactly one JSON object on stdout.",
+                    progress=False,
+                    fingerprint=f"VALIDATE:python:json-output:{path}",
+                    test_exit_code=1,
+                    validation_passes=validation_passes,
+                    validation_failures=["stdout_json"],
+                )
+            if not isinstance(parsed_output, dict):
+                return ActionOutcome(
+                    summary=f"{output}\nValidation expected stdout JSON to be an object.",
+                    progress=False,
+                    fingerprint=f"VALIDATE:python:json-output:{path}",
+                    test_exit_code=1,
+                    validation_passes=validation_passes,
+                    validation_failures=["stdout_json"],
+                )
+            validation_passes.append("stdout_json")
+            if self.task_requests_text_stats_fields():
+                sample_text = Path(".agent_validation_input.txt").read_text(encoding="utf-8")
+                expected_fields = {"line_count", "word_count", "char_count", "top_words"}
+                if not expected_fields.issubset(parsed_output.keys()):
+                    return ActionOutcome(
+                        summary=f"{output}\nValidation expected JSON keys {sorted(expected_fields)}.",
+                        progress=False,
+                        fingerprint=f"VALIDATE:python:text-stats:{path}",
+                        test_exit_code=1,
+                        validation_passes=validation_passes,
+                        validation_failures=["semantic_counts"],
+                    )
+                expected_line_count = len(sample_text.splitlines())
+                expected_word_count = len(re.findall(r"\w+", sample_text.lower()))
+                expected_char_count = len(sample_text)
+                if parsed_output.get("line_count") != expected_line_count or parsed_output.get("word_count") != expected_word_count or parsed_output.get("char_count") != expected_char_count:
+                    return ActionOutcome(
+                        summary=(
+                            f"{output}\nValidation expected line_count={expected_line_count}, "
+                            f"word_count={expected_word_count}, char_count={expected_char_count}."
+                        ),
+                        progress=False,
+                        fingerprint=f"VALIDATE:python:text-stats:{path}",
+                        test_exit_code=1,
+                        validation_passes=validation_passes,
+                        validation_failures=["semantic_counts"],
+                    )
+                if not isinstance(parsed_output.get("top_words"), list):
+                    return ActionOutcome(
+                        summary=f"{output}\nValidation expected top_words to be a list.",
+                        progress=False,
+                        fingerprint=f"VALIDATE:python:text-stats:{path}",
+                        test_exit_code=1,
+                        validation_passes=validation_passes,
+                        validation_failures=["semantic_counts"],
+                    )
+                validation_passes.append("semantic_counts")
+                if self.task_requests_top_n_option():
+                    top_result = self.run_command(
+                        f"python3 {shlex.quote(path)} --top 3 {shlex.quote(str(Path('.agent_validation_input.txt')))}",
+                        category="test_runs",
+                        timeout=command_timeout,
+                    )
+                    top_output = f"exit={top_result.returncode}\n{top_result.stdout}\n{top_result.stderr}".strip()
+                    if top_result.returncode != 0:
+                        return ActionOutcome(
+                            summary=f"{top_output}\nValidation expected --top 3 to succeed.",
+                            progress=False,
+                            fingerprint=f"VALIDATE:python:text-stats:{path}",
+                            test_exit_code=top_result.returncode,
+                            validation_passes=validation_passes,
+                            validation_failures=["top_n"],
+                        )
+                    try:
+                        top_parsed_output = json.loads(top_result.stdout)
+                    except json.JSONDecodeError:
+                        return ActionOutcome(
+                            summary=f"{top_output}\nValidation expected --top 3 to return a JSON object.",
+                            progress=False,
+                            fingerprint=f"VALIDATE:python:text-stats:{path}",
+                            test_exit_code=1,
+                            validation_passes=validation_passes,
+                            validation_failures=["top_n"],
+                        )
+                    if not isinstance(top_parsed_output, dict) or not isinstance(top_parsed_output.get("top_words"), list) or len(top_parsed_output["top_words"]) != 3:
+                        return ActionOutcome(
+                            summary=f"{top_output}\nValidation expected --top 3 to return exactly 3 top_words entries.",
+                            progress=False,
+                            fingerprint=f"VALIDATE:python:text-stats:{path}",
+                            test_exit_code=1,
+                            validation_passes=validation_passes,
+                            validation_failures=["top_n"],
+                        )
+                    validation_passes.append("top_n")
+                if self.task_requests_missing_file_json_error():
+                    missing_result = self.run_command(
+                        f"python3 {shlex.quote(path)} missing-input-file.txt",
+                        category="test_runs",
+                        timeout=command_timeout,
+                    )
+                    missing_output = f"exit={missing_result.returncode}\n{missing_result.stdout}\n{missing_result.stderr}".strip()
+                    if missing_result.returncode != 1:
+                        return ActionOutcome(
+                            summary=f"{missing_output}\nValidation expected a missing file to exit with code 1.",
+                            progress=False,
+                            fingerprint=f"VALIDATE:python:text-stats:{path}",
+                            test_exit_code=missing_result.returncode,
+                            validation_passes=validation_passes,
+                            validation_failures=["missing_file"],
+                        )
+                    try:
+                        missing_parsed_output = json.loads(missing_result.stdout)
+                    except json.JSONDecodeError:
+                        return ActionOutcome(
+                            summary=f"{missing_output}\nValidation expected missing-file output to be a JSON object on stdout.",
+                            progress=False,
+                            fingerprint=f"VALIDATE:python:text-stats:{path}",
+                            test_exit_code=1,
+                            validation_passes=validation_passes,
+                            validation_failures=["missing_file"],
+                        )
+                    if not isinstance(missing_parsed_output, dict):
+                        return ActionOutcome(
+                            summary=f"{missing_output}\nValidation expected missing-file stdout JSON to be an object.",
+                            progress=False,
+                            fingerprint=f"VALIDATE:python:text-stats:{path}",
+                            test_exit_code=1,
+                            validation_passes=validation_passes,
+                            validation_failures=["missing_file"],
+                        )
+                    validation_passes.append("missing_file")
+        fingerprint = self.fingerprint_for_tests(command)
+        if suffix == ".py" and self.task_requires_runnable_program() and "calculator" not in self.primary_task_text().lower() and "hello world" not in self.primary_task_text().lower():
+            fingerprint = f"VALIDATE:python:syntax:{path}"
+        if suffix == ".py" and self.task_looks_like_file_processing_cli() and result.returncode == 0:
+            fingerprint = f"VALIDATE:python:sample-io:{path}"
+        validation_passes = ["syntax"] if suffix == ".py" and result.returncode == 0 else []
+        validation_failures = ["syntax"] if suffix == ".py" and result.returncode != 0 else []
+        return ActionOutcome(summary=output, progress=result.returncode == 0, fingerprint=fingerprint, test_exit_code=result.returncode, validation_passes=validation_passes, validation_failures=validation_failures)
 
     def run_command(self, command: str, *, category: str = "commands", timeout: int = 950) -> subprocess.CompletedProcess[str]:
         if not command:
@@ -895,7 +1214,8 @@ class DuckAgent:
         return result
 
     def refresh_expected_outputs(self) -> None:
-        expected_dir = Path("secret_spec/expected_outputs")
+        runner = self.public_test_runner_path()
+        expected_dir = runner.parents[1] / "expected_outputs" if runner else Path("secret_spec/expected_outputs")
         if expected_dir.exists():
             for f in expected_dir.rglob("*.expected.json"):
                 f.touch()
@@ -911,8 +1231,8 @@ class DuckAgent:
                 test_exit_code=result.returncode,
             )
 
-        runner = Path("secret_spec/test_runner/run_tests.py")
-        if not runner.exists():
+        runner = self.public_test_runner_path()
+        if runner is None:
             builtin_outcome = self.run_builtin_validation()
             if builtin_outcome.fingerprint != "VALIDATE:none" and not builtin_outcome.fingerprint.startswith("VALIDATE:unsupported"):
                 self.logger.write("test_runs", builtin_outcome.summary)
@@ -949,6 +1269,17 @@ class DuckAgent:
         self.state.last_action_summary = outcome.summary
         self.state.last_action_fingerprint = outcome.fingerprint
         self.state.last_action_progress = outcome.progress
+        if outcome.test_exit_code is not None:
+            self.state.last_test_fingerprint = outcome.fingerprint
+            self.state.last_validation_passes = list(outcome.validation_passes)
+            self.state.last_validation_failures = list(outcome.validation_failures)
+            score = self.validation_score(outcome.validation_passes, outcome.validation_failures)
+            if outcome.artifact_hash and score > self.state.best_validation_score:
+                self.state.best_validation_score = score
+                self.state.best_validation_artifact_hash = outcome.artifact_hash
+                self.state.rewrite_stagnation_count = 0
+            elif outcome.validation_failures and outcome.path == self.state.primary_artifact_path:
+                self.state.rewrite_stagnation_count += 1
 
         if outcome.progress:
             self.state.completed_actions += 1
@@ -991,6 +1322,8 @@ class DuckAgent:
 
         # Tightened completion for code files: require passing tests or 80%+ at iteration >= 3
         if artifact.suffix.lower() in {".py", ".c", ".cpp"}:
+            if self.state.last_test_fingerprint.startswith("VALIDATE:python:syntax:"):
+                return None
             if self.state.last_test_exit_code == 0:
                 # Passed all tests
                 self.state.last_completed_artifact_hash = artifact_hash
@@ -1051,23 +1384,32 @@ class DuckAgent:
         try:
             action = self.parse_action(response)
         except ValueError as exc:
-            outcome = ActionOutcome(
-                summary=f"Invalid model response: {exc}",
-                progress=False,
-                fingerprint="MODEL_RESPONSE_INVALID",
-            )
+            self.state.invalid_response_streak += 1
             self.logger.write("errors", f"Invalid model response JSON: {self.normalize_model_response(response)} -> {exc}")
-            self.update_state_from_outcome(outcome)
-            self.print_progress(outcome.summary)
-            if self.state.consecutive_no_progress >= 3:
-                raise ValueError("Stopping after 3 consecutive no-progress iterations")
-            return True
+            try:
+                action = self.recover_action_from_invalid_response(response)
+                self.state.invalid_response_streak = 0
+                self.logger.write("decisions", f"ACTION_RECOVERED {action['action']}: {action['reason']}")
+            except ValueError as recovery_exc:
+                outcome = ActionOutcome(
+                    summary=f"Invalid model response: {recovery_exc}",
+                    progress=False,
+                    fingerprint="MODEL_RESPONSE_INVALID",
+                )
+                self.update_state_from_outcome(outcome)
+                self.print_progress(outcome.summary)
+                if self.state.consecutive_no_progress >= 3:
+                    raise ValueError("Stopping after 3 consecutive no-progress iterations")
+                return True
+        else:
+            self.state.invalid_response_streak = 0
         self.logger.write("decisions", f"ACTION {action['action']}: {action['reason']}")
         self.append_external_log(f"ACTION {action['action']}: {action['reason']}")
 
         try:
             if action["action"] == "WRITE_FILE":
-                outcome = self.write_file(action["path"], action["content"])
+                action_path = self.resolved_write_path(action["path"])
+                outcome = self.write_file(action_path, action["content"])
                 if outcome.progress and outcome.path and self.supports_builtin_validation_path(outcome.path):
                     guessed_artifact_missing = bool(self.state.primary_artifact_path) and not Path(self.state.primary_artifact_path).exists()
                     if not self.state.primary_artifact_path or guessed_artifact_missing:
@@ -1083,6 +1425,7 @@ class DuckAgent:
                         test_outcome = self.run_builtin_validation()
                         self.state.last_test_output = test_outcome.summary
                         self.state.last_test_exit_code = test_outcome.test_exit_code
+                        self.state.last_test_fingerprint = test_outcome.fingerprint
                         self.state.dirty_since_test = test_outcome.test_exit_code not in {0, None}
                         outcome = ActionOutcome(
                             summary=f"{outcome.summary}\nAUTO_VALIDATION: {test_outcome.summary}",
@@ -1113,13 +1456,14 @@ class DuckAgent:
                 else:
                     self.state.last_test_output = outcome.summary
                     self.state.last_test_exit_code = outcome.test_exit_code
+                    self.state.last_test_fingerprint = outcome.fingerprint
                     self.state.dirty_since_test = outcome.test_exit_code not in {0, None}
             elif action["action"] == "STOP":
                 if self.state.completed_actions == 0:
                     raise ValueError("Refusing to STOP before executing any concrete action")
 
-                if self.state.spec_pages and self.state.current_spec_page < len(self.state.spec_pages):
-                    remaining = len(self.state.spec_pages) - self.state.current_spec_page
+                if self.state.spec_pages and self.state.current_spec_page < len(self.state.spec_pages) - 1:
+                    remaining = len(self.state.spec_pages) - self.state.current_spec_page - 1
                     raise ValueError(
                         f"Cannot STOP — spec page {self.state.current_spec_page + 1}/{len(self.state.spec_pages)} "
                         f"is current, {remaining} more page(s) remain."
@@ -1127,6 +1471,9 @@ class DuckAgent:
 
                 if self.state.dirty_since_test and self.has_validation_target():
                     raise ValueError("Refusing to STOP while changes have not been validated by a test run")
+
+                if self.state.last_test_fingerprint.startswith("VALIDATE:python:syntax:") and self.task_requires_runnable_program():
+                    raise ValueError("Refusing to STOP after syntax-only validation for a runnable Python program")
 
                 outcome = self.stop_outcome(f"STOP accepted: {action['reason']}")
         except ValueError as exc:
