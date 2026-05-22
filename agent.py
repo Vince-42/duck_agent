@@ -24,7 +24,7 @@ class AgentConfig:
     task: str = ""
     task_file: Path | None = None
     provider: str = os.getenv("AGENT_PROVIDER", "ollama")
-    model: str = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
+    model: str = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:latest")
     ollama_url: str = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
     groq_model: str = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
     groq_url: str = os.getenv("GROQ_URL", "https://api.groq.com/openai/v1")
@@ -81,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.getenv("AGENT_PROVIDER", "ollama"),
         help="Model provider to prefer: ollama, groq, or auto",
     )
-    parser.add_argument("--model", default=os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b"), help="Ollama model name")
+    parser.add_argument("--model", default=os.getenv("OLLAMA_MODEL", "qwen2.5-coder:latest"), help="Ollama model name")
     parser.add_argument(
         "--ollama-url",
         default=os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate"),
