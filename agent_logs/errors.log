@@ -62,3 +62,6 @@
 ```
 [2026-05-21 22:13:56] Iteration 5: Stopping after 3 consecutive no-progress iterations
 [2026-05-21 22:40:09] Iteration 0: Replacement index 0 out of range for positional args tuple
+[2026-05-22 22:52:42] Iteration 0: Model call failed: http://localhost:11434/api/generate -> <urlopen error [Errno 61] Connection refused>; http://localhost:11434/api/generate -> <urlopen error [Errno 61] Connection refused>; http://localhost:11434/v1/chat/completions -> <urlopen error [Errno 61] Connection refused>
+[2026-05-22 22:57:19] Iteration 0: Model call failed: http://localhost:11434/api/generate -> HTTP 404: {"error":"model 'qwen2.5-coder:7b' not found"}; http://localhost:11434/api/generate -> HTTP 404: {"error":"model 'qwen2.5-coder:7b' not found"}; http://localhost:11434/v1/chat/completions -> HTTP 404: {"error":{"message":"model 'qwen2.5-coder:7b' not found","type":"not_found_error","param":null,"code":null}}
+[2026-05-22 23:01:00] Iteration 0: Model call failed: http://localhost:11434/api/generate -> HTTP 404: {"error":"model 'qwen2.5-coder:7b' not found"}; http://localhost:11434/api/generate -> HTTP 404: {"error":"model 'qwen2.5-coder:7b' not found"}; http://localhost:11434/v1/chat/completions -> HTTP 404: {"error":{"message":"model 'qwen2.5-coder:7b' not found","type":"not_found_error","param":null,"code":null}}

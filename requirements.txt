@@ -1,1 +1,4 @@
-# Standard-library-only scaffold by default.
+# Agent dependencies
+# Core: standard library only
+# Dashboard (optional): websockets for real-time monitoring
+websockets>=12.0
