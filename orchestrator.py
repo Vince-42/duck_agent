@@ -96,7 +96,7 @@ class MultiRoleOrchestrator:
         if agent.state.completed_actions == 0:
             return self.phase_initial
 
-        if agent.state.dirty_since_test or (agent.state.last_test_exit_code not in {None, 0}):
+        if agent.state.last_test_exit_code not in {None, 0}:
             return self.phase_dirty
 
         return self.phase_default
@@ -155,12 +155,12 @@ class MultiRoleOrchestrator:
         constraints = "\n".join(f"- {rule}" for rule in self.build_constraints(agent))
         role_briefs = "\n".join(self.render_role_brief(role_name) for role_name in active_roles)
         switching_logic = self.switching_logic[0] if self.switching_logic else "Use the current phase and evidence to pick the next internal mode."
+        active_roles_str = ", ".join(active_roles)
 
-        return textwrap.dedent(
-            f"""
+        template = textwrap.dedent("""\
             Structured cognition engine is enabled.
             Current coordination phase: {phase}
-            Active cognitive modes this turn: {', '.join(active_roles)}
+            Active cognitive modes this turn: {active_roles}
 
             Shared rules:
             {shared_rules}
@@ -180,7 +180,15 @@ class MultiRoleOrchestrator:
             - Do not emit role-by-role transcripts or chain-of-thought.
             - Return exactly one JSON object matching the required action schema.
             - The final action should be the smallest high-confidence next step for the current phase.
-            """
+        """)
+
+        return template.format(
+            phase=phase,
+            active_roles=active_roles_str,
+            shared_rules=shared_rules,
+            constraints=constraints,
+            switching_logic=switching_logic,
+            role_briefs=role_briefs,
         ).strip()
 
     def prepare_turn(self, agent: DuckAgent, task_description: str) -> OrchestratorTurn:

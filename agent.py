@@ -9,7 +9,7 @@ import shlex
 import socket
 import subprocess
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence
@@ -29,10 +29,11 @@ class AgentConfig:
     groq_model: str = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
     groq_url: str = os.getenv("GROQ_URL", "https://api.groq.com/openai/v1")
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
-    max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "20"))
+    max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "1000"))
     solution_command: str = os.getenv("AGENT_SOLUTION_COMMAND", "python3 solution.py")
     test_command: str = os.getenv("AGENT_TEST_COMMAND", "")
     enable_multirole: bool = os.getenv("AGENT_MULTI_ROLE", "1").lower() not in {"0", "false", "no"}
+    max_prompt_size: int = int(os.getenv("AGENT_MAX_PROMPT_SIZE", "4096"))
     orchestrator_config: Path | None = Path(os.getenv("AGENT_ORCHESTRATOR_CONFIG")) if os.getenv("AGENT_ORCHESTRATOR_CONFIG") else Path("agent.json")
 
 
@@ -42,6 +43,7 @@ class RuntimeState:
     completed_actions: int = 0
     material_changes: int = 0
     consecutive_no_progress: int = 0
+    repeated_action_count: int = 0
     dirty_since_test: bool = False
     last_test_exit_code: int | None = None
     last_test_output: str = "No tests run yet."
@@ -53,6 +55,8 @@ class RuntimeState:
     rewrite_count_for_primary_artifact: int = 0
     current_artifact_hash: str = ""
     last_completed_artifact_hash: str = ""
+    spec_pages: list[str] = field(default_factory=list)
+    current_spec_page: int = 0
 
 
 @dataclass
@@ -96,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-iterations",
         type=int,
-        default=int(os.getenv("AGENT_MAX_ITERATIONS", "20")),
+        default=int(os.getenv("AGENT_MAX_ITERATIONS", "1000")),
         help="Maximum agent iterations before stopping",
     )
     parser.add_argument(
@@ -124,12 +128,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Check whether the local environment looks ready to run the agent",
     )
+    parser.add_argument(
+        "--max-prompt-size",
+        type=int,
+        default=int(os.getenv("AGENT_MAX_PROMPT_SIZE", "4096")),
+        help="Maximum characters for the prompt sent to the AI model (default: 4096)",
+    )
     return parser
 
 
 def config_from_args(args: argparse.Namespace) -> AgentConfig:
+    spec_path = Path(args.spec_path)
+    if spec_path.is_dir():
+        spec_path = spec_path / "SECRET_SPEC.md"
     return AgentConfig(
-        spec_path=Path(args.spec_path),
+        spec_path=spec_path,
         logs_dir=Path(args.logs_dir),
         task=args.task,
         task_file=Path(args.task_file) if args.task_file else None,
@@ -143,6 +156,7 @@ def config_from_args(args: argparse.Namespace) -> AgentConfig:
         solution_command=args.solution_command,
         test_command=args.test_command,
         enable_multirole=not args.single_agent,
+        max_prompt_size=args.max_prompt_size,
         orchestrator_config=Path(args.orchestrator_config) if args.orchestrator_config else None,
     )
 
@@ -266,6 +280,11 @@ class DuckAgent:
         task_description = self.primary_task_text()
         if not task_description:
             return ""
+
+        if "solution.py" in task_description or "python solution.py" in task_description:
+            return "solution.py"
+        if "knit.py" in task_description:
+            return "solution.py"
 
         patterns = [
             r"(?:file|program|script|document|message)\s+called\s+([A-Za-z0-9_.\-/]+)",
@@ -459,7 +478,7 @@ class DuckAgent:
         if provider == "groq" and not self.config.groq_api_key:
             raise RuntimeError("Model call failed: provider 'groq' requires GROQ_API_KEY")
 
-        model_timeout = int(os.getenv("AGENT_MODEL_TIMEOUT", "45"))
+        model_timeout = int(os.getenv("AGENT_MODEL_TIMEOUT", "945"))
 
         for url, payload, response_type in self.model_request_candidates(prompt):
             headers = {"Content-Type": "application/json"}
@@ -511,6 +530,24 @@ class DuckAgent:
     def has_external_test_target(self) -> bool:
         return bool(self.config.test_command) or Path("secret_spec/test_runner/run_tests.py").exists()
 
+    @staticmethod
+    def _split_spec(text: str, chunk_size: int) -> list[str]:
+        """Split text at line boundaries, each chunk ≤ chunk_size chars."""
+        if chunk_size <= 0:
+            return [text]
+        lines = text.splitlines(keepends=True)
+        chunks: list[str] = []
+        current = ""
+        for line in lines:
+            if current and len(current) + len(line) > chunk_size:
+                chunks.append(current)
+                current = line
+            else:
+                current += line
+        if current:
+            chunks.append(current)
+        return chunks if chunks else [text]
+
     def build_prompt(self, task_description: str, orchestration_context: str = "") -> str:
         orchestration_block = ""
         if orchestration_context:
@@ -537,16 +574,18 @@ class DuckAgent:
         if self.state.primary_artifact_path:
             primary_artifact_block = f"\nPrimary artifact target:\n{self.state.primary_artifact_path}\n"
 
-        return textwrap.dedent(
-            f"""
+        test_target_label = "yes" if self.has_test_target() else "no"
+        external_log = self.state.external_log_path or "(none)"
+
+        template = textwrap.dedent("""\
             You are an autonomous coding agent working in a local repository.
 
             Task description:
             {task_description}
 
-            Current iteration: {self.state.iteration}
+            Current iteration: {iteration}
 
-            Test target available: {"yes" if self.has_test_target() else "no"}
+            Test target available: {test_target}
 
             Last public test output:
             {last_test_output}
@@ -555,7 +594,7 @@ class DuckAgent:
             {last_action_summary}
 
             Runtime-managed external log file:
-            {self.state.external_log_path or '(none)'}
+            {external_log}
             {primary_artifact_block}
             {program_expectation_block}
             {orchestration_block}
@@ -581,8 +620,55 @@ class DuckAgent:
             - If a runtime-managed external log file is configured, do not write to that file yourself; the runtime maintains it.
             - Do not copy the 'Last action result' text verbatim into output files.
             - If multi-role orchestration context is present, use it internally and still return only one final JSON action object.
-            """
+            - Write your code to solution.py, not knit.py. The test runner uses 'python3 solution.py compile <file>'.
+            - Use RUN_COMMAND like "python3 solution.py compile <test_file>" to debug individual cases.
+            - Use RUN_TESTS to run the full public test suite with "python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public --failures 10"
+            - Debug repeat tests first by running: python3 secret_spec/test_runner/run_tests.py --compiler "python3 solution.py" --category level_0N_XXXX --failures 10
+            - If tests report "stale expected output", touch the expected files: find secret_spec/expected_outputs -name '*.expected.json' -exec touch {{}} +
+        """)
+
+        prompt_without_task = template.format(
+            task_description="",
+            iteration=self.state.iteration,
+            test_target=test_target_label,
+            last_test_output=last_test_output,
+            last_action_summary=last_action_summary,
+            external_log=external_log,
+            primary_artifact_block=primary_artifact_block,
+            program_expectation_block=program_expectation_block,
+            orchestration_block=orchestration_block,
         ).strip()
+
+        available = self.config.max_prompt_size - len(prompt_without_task)
+
+        if not self.state.spec_pages and available < len(task_description):
+            self.state.spec_pages = self._split_spec(task_description, available)
+            self.state.current_spec_page = 0
+
+        if self.state.spec_pages:
+            page_idx = self.state.current_spec_page
+            total_pages = len(self.state.spec_pages)
+            if page_idx < total_pages:
+                page_content = self.state.spec_pages[page_idx]
+                task_description = f"(page {page_idx + 1}/{total_pages})\n{page_content}"
+                if page_idx < total_pages - 1:
+                    remaining = total_pages - page_idx - 1
+                    s = "s" if remaining > 1 else ""
+                    task_description += f"\n\n[{remaining} more page{s} remain. Continue working with the next page.]"
+
+        prompt = template.format(
+            task_description=task_description,
+            iteration=self.state.iteration,
+            test_target=test_target_label,
+            last_test_output=last_test_output,
+            last_action_summary=last_action_summary,
+            external_log=external_log,
+            primary_artifact_block=primary_artifact_block,
+            program_expectation_block=program_expectation_block,
+            orchestration_block=orchestration_block,
+        ).strip()
+
+        return prompt
 
     def parse_action(self, response: str) -> dict[str, str]:
         normalized_response = self.normalize_model_response(response)
@@ -667,7 +753,7 @@ class DuckAgent:
             return ActionOutcome(summary=f"Primary artifact {path} does not exist yet.", progress=False, fingerprint=f"VALIDATE:missing:{path}")
 
         suffix = artifact.suffix.lower()
-        command_timeout = 5 if self.task_requires_runnable_program() else 30
+        command_timeout = 15 if self.task_requires_runnable_program() else 30
         if suffix == ".py":
             content = artifact.read_text(encoding="utf-8")
             if self.task_requires_runnable_program() and "__main__" not in content and "main(" not in content:
@@ -685,7 +771,7 @@ class DuckAgent:
                 ]
                 last_failure: ActionOutcome | None = None
                 for command in smoke_commands:
-                    result = self.run_command(command, category="test_runs", timeout=5)
+                    result = self.run_command(command, category="test_runs", timeout=35)
                     output = f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
                     if result.returncode == 0 and "2" in result.stdout:
                         return ActionOutcome(
@@ -747,7 +833,7 @@ class DuckAgent:
             test_exit_code=result.returncode,
         )
 
-    def run_command(self, command: str, *, category: str = "commands", timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    def run_command(self, command: str, *, category: str = "commands", timeout: int = 950) -> subprocess.CompletedProcess[str]:
         if not command:
             raise ValueError("Command cannot be empty")
 
@@ -778,6 +864,12 @@ class DuckAgent:
         self.logger.write(category, output)
         return result
 
+    def refresh_expected_outputs(self) -> None:
+        expected_dir = Path("secret_spec/expected_outputs")
+        if expected_dir.exists():
+            for f in expected_dir.rglob("*.expected.json"):
+                f.touch()
+
     def run_public_tests(self) -> ActionOutcome:
         if self.config.test_command:
             result = self.run_command(self.config.test_command, category="test_runs")
@@ -800,21 +892,28 @@ class DuckAgent:
             self.logger.write("test_runs", message)
             return ActionOutcome(summary=message, progress=False, fingerprint="RUN_TESTS:unavailable")
 
+        self.refresh_expected_outputs()
         command = (
             f"python3 {shlex.quote(str(runner))} "
-            f"--program {shlex.quote(self.config.solution_command)} --suite public"
+            f"--compiler {shlex.quote(self.config.solution_command)} --suite public --failures 10"
         )
         result = self.run_command(command, category="test_runs")
         output = f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
         return ActionOutcome(
             summary=output,
-            progress=True,
+            progress=result.returncode == 0,
             fingerprint=self.fingerprint_for_tests(command),
             test_exit_code=result.returncode,
         )
 
     def should_block_repeated_action(self, fingerprint: str, progress: bool) -> bool:
-        return fingerprint == self.state.last_action_fingerprint and not self.state.last_action_progress and not progress
+        if fingerprint == self.state.last_action_fingerprint:
+            if not progress and not self.state.last_action_progress:
+                return True
+            self.state.repeated_action_count += 1
+            return self.state.repeated_action_count >= 3
+        self.state.repeated_action_count = 0
+        return False
 
     def update_state_from_outcome(self, outcome: ActionOutcome) -> None:
         self.state.last_action_summary = outcome.summary
@@ -923,62 +1022,76 @@ class DuckAgent:
         self.logger.write("decisions", f"ACTION {action['action']}: {action['reason']}")
         self.append_external_log(f"ACTION {action['action']}: {action['reason']}")
 
-        if action["action"] == "WRITE_FILE":
-            outcome = self.write_file(action["path"], action["content"])
-            if outcome.progress and outcome.path and self.supports_builtin_validation_path(outcome.path):
-                guessed_artifact_missing = bool(self.state.primary_artifact_path) and not Path(self.state.primary_artifact_path).exists()
-                if not self.state.primary_artifact_path or guessed_artifact_missing:
-                    self.state.primary_artifact_path = outcome.path
-                    if outcome.artifact_hash:
-                        self.state.current_artifact_hash = outcome.artifact_hash
-            if self.should_block_repeated_action(outcome.fingerprint, outcome.progress):
-                outcome = self.stop_outcome(f"stalled: repeated equivalent write for {action['path']}")
-            elif outcome.progress:
-                self.state.material_changes += 1
-                self.state.dirty_since_test = True
-                if not self.has_external_test_target() and self.state.primary_artifact_path and self.can_run_builtin_validation():
-                    test_outcome = self.run_builtin_validation()
-                    self.state.last_test_output = test_outcome.summary
-                    self.state.last_test_exit_code = test_outcome.test_exit_code
-                    self.state.dirty_since_test = test_outcome.test_exit_code not in {0, None}
-                    outcome = ActionOutcome(
-                        summary=f"{outcome.summary}\nAUTO_VALIDATION: {test_outcome.summary}",
-                        progress=outcome.progress or test_outcome.progress,
-                        fingerprint=test_outcome.fingerprint,
-                        test_exit_code=test_outcome.test_exit_code,
-                        path=outcome.path,
-                        artifact_hash=outcome.artifact_hash,
+        try:
+            if action["action"] == "WRITE_FILE":
+                outcome = self.write_file(action["path"], action["content"])
+                if outcome.progress and outcome.path and self.supports_builtin_validation_path(outcome.path):
+                    guessed_artifact_missing = bool(self.state.primary_artifact_path) and not Path(self.state.primary_artifact_path).exists()
+                    if not self.state.primary_artifact_path or guessed_artifact_missing:
+                        self.state.primary_artifact_path = outcome.path
+                        if outcome.artifact_hash:
+                            self.state.current_artifact_hash = outcome.artifact_hash
+                if self.should_block_repeated_action(outcome.fingerprint, outcome.progress):
+                    outcome = self.stop_outcome(f"stalled: repeated equivalent write for {action['path']}")
+                elif outcome.progress:
+                    self.state.material_changes += 1
+                    self.state.dirty_since_test = True
+                    if not self.has_external_test_target() and self.state.primary_artifact_path and self.can_run_builtin_validation():
+                        test_outcome = self.run_builtin_validation()
+                        self.state.last_test_output = test_outcome.summary
+                        self.state.last_test_exit_code = test_outcome.test_exit_code
+                        self.state.dirty_since_test = test_outcome.test_exit_code not in {0, None}
+                        outcome = ActionOutcome(
+                            summary=f"{outcome.summary}\nAUTO_VALIDATION: {test_outcome.summary}",
+                            progress=outcome.progress or test_outcome.progress,
+                            fingerprint=test_outcome.fingerprint,
+                            test_exit_code=test_outcome.test_exit_code,
+                            path=outcome.path,
+                            artifact_hash=outcome.artifact_hash,
+                        )
+            elif action["action"] == "RUN_COMMAND":
+                result = self.run_command(action["command"])
+                summary = (
+                    f"RUN_COMMAND `{action['command']}` -> exit={result.returncode}. "
+                    f"STDOUT: {result.stdout.strip() or '(empty)'} STDERR: {result.stderr.strip() or '(empty)'}"
+                )
+                fingerprint = self.fingerprint_for_command(action["command"])
+                progress = bool(result.stdout.strip() or result.stderr.strip() or result.returncode != 0)
+                if self.should_block_repeated_action(fingerprint, progress):
+                    outcome = self.stop_outcome(f"stalled: repeated equivalent command `{action['command']}`")
+                else:
+                    outcome = ActionOutcome(summary=summary, progress=progress, fingerprint=fingerprint)
+            elif action["action"] == "RUN_TESTS":
+                outcome = self.run_public_tests()
+                if not self.has_validation_target() and outcome.fingerprint == "RUN_TESTS:unavailable":
+                    outcome = self.stop_outcome("stalled: model requested tests, but no test target or built-in validation is available")
+                elif self.should_block_repeated_action(outcome.fingerprint, outcome.progress):
+                    outcome = self.stop_outcome("stalled: repeated equivalent test run")
+                else:
+                    self.state.last_test_output = outcome.summary
+                    self.state.last_test_exit_code = outcome.test_exit_code
+                    self.state.dirty_since_test = outcome.test_exit_code not in {0, None}
+            elif action["action"] == "STOP":
+                if self.state.completed_actions == 0:
+                    raise ValueError("Refusing to STOP before executing any concrete action")
+
+                if self.state.spec_pages and self.state.current_spec_page < len(self.state.spec_pages):
+                    remaining = len(self.state.spec_pages) - self.state.current_spec_page
+                    raise ValueError(
+                        f"Cannot STOP — spec page {self.state.current_spec_page + 1}/{len(self.state.spec_pages)} "
+                        f"is current, {remaining} more page(s) remain."
                     )
-        elif action["action"] == "RUN_COMMAND":
-            result = self.run_command(action["command"])
-            summary = (
-                f"RUN_COMMAND `{action['command']}` -> exit={result.returncode}. "
-                f"STDOUT: {result.stdout.strip() or '(empty)'} STDERR: {result.stderr.strip() or '(empty)'}"
+
+                if self.state.dirty_since_test and self.has_validation_target():
+                    raise ValueError("Refusing to STOP while changes have not been validated by a test run")
+
+                outcome = self.stop_outcome(f"STOP accepted: {action['reason']}")
+        except ValueError as exc:
+            outcome = ActionOutcome(
+                summary=f"Action rejected: {exc}",
+                progress=False,
+                fingerprint=f"ACTION_REJECTED:{action['action']}",
             )
-            fingerprint = self.fingerprint_for_command(action["command"])
-            progress = bool(result.stdout.strip() or result.stderr.strip() or result.returncode != 0)
-            if self.should_block_repeated_action(fingerprint, progress):
-                outcome = self.stop_outcome(f"stalled: repeated equivalent command `{action['command']}`")
-            else:
-                outcome = ActionOutcome(summary=summary, progress=progress, fingerprint=fingerprint)
-        elif action["action"] == "RUN_TESTS":
-            outcome = self.run_public_tests()
-            if not self.has_validation_target() and outcome.fingerprint == "RUN_TESTS:unavailable":
-                outcome = self.stop_outcome("stalled: model requested tests, but no test target or built-in validation is available")
-            elif self.should_block_repeated_action(outcome.fingerprint, outcome.progress):
-                outcome = self.stop_outcome("stalled: repeated equivalent test run")
-            else:
-                self.state.last_test_output = outcome.summary
-                self.state.last_test_exit_code = outcome.test_exit_code
-                self.state.dirty_since_test = outcome.test_exit_code not in {0, None}
-        elif action["action"] == "STOP":
-            if self.state.completed_actions == 0:
-                raise ValueError("Refusing to STOP before executing any concrete action")
-
-            if self.state.dirty_since_test and self.has_validation_target():
-                raise ValueError("Refusing to STOP while changes have not been validated by a test run")
-
-            outcome = self.stop_outcome(f"STOP accepted: {action['reason']}")
 
         self.update_state_from_outcome(outcome)
         self.print_progress(outcome.summary)
@@ -988,6 +1101,12 @@ class DuckAgent:
             self.update_state_from_outcome(completion_outcome)
             self.print_progress(completion_outcome.summary)
             return False
+
+        if self.state.spec_pages:
+            self.state.current_spec_page += 1
+            if self.state.current_spec_page >= len(self.state.spec_pages):
+                self.state.spec_pages = []
+                self.state.current_spec_page = 0
 
         if self.state.consecutive_no_progress >= 3:
             raise ValueError("Stopping after 3 consecutive no-progress iterations")

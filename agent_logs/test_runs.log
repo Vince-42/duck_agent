@@ -8,3 +8,1086 @@ STDOUT:
 2
 
 STDERR:
+[2026-05-21 19:47:26] No test command configured, public test runner not available, and no built-in validation applied yet.
+[2026-05-21 19:49:34] No test command configured, public test runner not available, and no built-in validation applied yet.
+[2026-05-21 19:55:15] Python artifact hello_world.py is missing a runnable entrypoint.
+[2026-05-21 19:57:25] COMMAND python3 -m py_compile hello_world.py && python3 hello_world.py
+[2026-05-21 19:57:26] exit=0
+STDOUT:
+Hello World
+
+STDERR:
+[2026-05-21 20:57:11] COMMAND python3 secret_spec/test_runner/run_tests.py --program 'python3 solution.py' --suite public
+[2026-05-21 20:57:11] exit=2
+STDOUT:
+
+STDERR:
+usage: run_tests.py [-h] --compiler COMPILER [--manifest MANIFEST]
+                    [--tests-dir TESTS_DIR] [--expected-dir EXPECTED_DIR]
+                    [--suite {public,all}] [--category CATEGORY]
+                    [--mode {full,exit-only}] [--failures FAILURES]
+                    [--json-report JSON_REPORT] [--cwd CWD]
+run_tests.py: error: the following arguments are required: --compiler
+[2026-05-21 21:01:00] COMMAND python3 secret_spec/test_runner/run_tests.py --program 'python3 solution.py' --suite public
+[2026-05-21 21:01:00] exit=2
+STDOUT:
+
+STDERR:
+usage: run_tests.py [-h] --compiler COMPILER [--manifest MANIFEST]
+                    [--tests-dir TESTS_DIR] [--expected-dir EXPECTED_DIR]
+                    [--suite {public,all}] [--category CATEGORY]
+                    [--mode {full,exit-only}] [--failures FAILURES]
+                    [--json-report JSON_REPORT] [--cwd CWD]
+run_tests.py: error: the following arguments are required: --compiler
+[2026-05-21 21:26:40] COMMAND python3 secret_spec/test_runner/run_tests.py --program 'python3 solution.py' --suite public
+[2026-05-21 21:26:40] exit=2
+STDOUT:
+
+STDERR:
+usage: run_tests.py [-h] --compiler COMPILER [--manifest MANIFEST]
+                    [--tests-dir TESTS_DIR] [--expected-dir EXPECTED_DIR]
+                    [--suite {public,all}] [--category CATEGORY]
+                    [--mode {full,exit-only}] [--failures FAILURES]
+                    [--json-report JSON_REPORT] [--cwd CWD]
+run_tests.py: error: the following arguments are required: --compiler
+[2026-05-21 21:34:44] COMMAND python3 secret_spec/test_runner/run_tests.py --program 'python3 solution.py' --suite public
+[2026-05-21 21:34:44] exit=2
+STDOUT:
+
+STDERR:
+usage: run_tests.py [-h] --compiler COMPILER [--manifest MANIFEST]
+                    [--tests-dir TESTS_DIR] [--expected-dir EXPECTED_DIR]
+                    [--suite {public,all}] [--category CATEGORY]
+                    [--mode {full,exit-only}] [--failures FAILURES]
+                    [--json-report JSON_REPORT] [--cwd CWD]
+run_tests.py: error: the following arguments are required: --compiler
+[2026-05-21 21:44:26] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:44:28] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_002: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_003: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_004: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_005: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_006: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_007: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_008: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_009: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_010: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_011: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_012: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_013: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_014: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_015: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_016: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_017: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_018: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_019: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_020: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:45:23] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:45:24] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_002: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_003: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_004: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_005: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_006: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_007: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_008: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_009: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_010: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_011: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_012: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_013: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_014: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_015: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_016: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_017: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_018: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_019: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+- pub_level_01_valid_basics_020: exit code expected 0, got 2
+  stderr tail: "python3: can't open file '/home/vleroy/hackathon_duck/solution.py': [Errno 2] No such file or directory\n"
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:48:16] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:48:18] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:49:14] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:49:16] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:50:17] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:50:19] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:51:19] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:51:20] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:52:15] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:52:17] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:53:14] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:53:15] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:54:08] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:54:10] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:55:11] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:55:13] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:56:12] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:56:14] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:57:11] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:57:12] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:58:10] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:58:11] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 21:59:06] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 21:59:08] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 22:00:05] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 22:00:07] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 22:01:08] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 22:01:10] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 22:02:17] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 22:02:19] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 22:12:51] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 22:12:53] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 22:13:54] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 22:13:56] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 22:16:55] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 22:16:57] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 22:18:05] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public
+[2026-05-21 22:18:07] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_001.expected.json
+- pub_level_01_valid_basics_002: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_002.expected.json
+- pub_level_01_valid_basics_003: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_003.expected.json
+- pub_level_01_valid_basics_004: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_004.expected.json
+- pub_level_01_valid_basics_005: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_005.expected.json
+- pub_level_01_valid_basics_006: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_006.expected.json
+- pub_level_01_valid_basics_007: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_007.expected.json
+- pub_level_01_valid_basics_008: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_008.expected.json
+- pub_level_01_valid_basics_009: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_009.expected.json
+- pub_level_01_valid_basics_010: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_010.expected.json
+- pub_level_01_valid_basics_011: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_011.expected.json
+- pub_level_01_valid_basics_012: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_012.expected.json
+- pub_level_01_valid_basics_013: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_013.expected.json
+- pub_level_01_valid_basics_014: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_014.expected.json
+- pub_level_01_valid_basics_015: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_015.expected.json
+- pub_level_01_valid_basics_016: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_016.expected.json
+- pub_level_01_valid_basics_017: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_017.expected.json
+- pub_level_01_valid_basics_018: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_018.expected.json
+- pub_level_01_valid_basics_019: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_019.expected.json
+- pub_level_01_valid_basics_020: stale expected output, regenerate: /home/vleroy/hackathon_duck/secret_spec/expected_outputs/public/level_01_valid_basics/pub_level_01_valid_basics_020.expected.json
+... 130 more failures not shown
+
+STDERR:
+[2026-05-21 22:44:53] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public --failures 10
+[2026-05-21 22:44:57] exit=0
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [################################] 150/150 passed (100.0%)
+Failed: 0
+
+public
+  [########################] 150/150
+  level_01_valid_basics                [##################]  20/20 
+  level_02_stitches                    [##################]  25/25 
+  level_03_brackets                    [##################]  25/25 
+  level_04_row_repeats                 [##################]  20/20 
+  level_05_single_errors               [##################]  30/30 
+  level_06_multi_error_recovery        [##################]  15/15 
+  level_07_cli_output                  [##################]   5/5  
+  level_08_stress                      [##################]  10/10 
+
+
+STDERR:
+[2026-05-21 22:58:52] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public --failures 10
+[2026-05-21 22:58:54] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_002: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_003: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_004: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_005: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_006: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_007: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_008: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_009: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_010: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+... 140 more failures not shown
+
+STDERR:
+[2026-05-21 23:02:49] COMMAND python3 secret_spec/test_runner/run_tests.py --compiler 'python3 solution.py' --suite public --failures 10
+[2026-05-21 23:02:51] exit=1
+STDOUT:
+
+Knitting Compiler Scoreboard
+Overall [................................] 0/150 passed (0.0%)
+Failed: 150
+
+public
+  [........................] 0/150
+  level_01_valid_basics                [..................]   0/20 
+  level_02_stitches                    [..................]   0/25 
+  level_03_brackets                    [..................]   0/25 
+  level_04_row_repeats                 [..................]   0/20 
+  level_05_single_errors               [..................]   0/30 
+  level_06_multi_error_recovery        [..................]   0/15 
+  level_07_cli_output                  [..................]   0/5  
+  level_08_stress                      [..................]   0/10 
+
+Failures
+- pub_level_01_valid_basics_001: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_002: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_003: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_004: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_005: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_006: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_007: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_008: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_009: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+- pub_level_01_valid_basics_010: stdout is not exactly one JSON document: Expecting value: line 1 column 1 (char 0)
+... 140 more failures not shown
+
+STDERR:

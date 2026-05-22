@@ -1,0 +1,13 @@
+[2026-05-21 19:27:03] COMMAND cat french_history.txt
+[2026-05-21 19:27:03] exit=0
+STDOUT:
+1789 - Révolution française commence, avec la réclamation des droits de l'homme et le principe de la nation établis.
+1792 - La monarchie est aboulée et une République française est proclamée.
+1793 - La Terreur politique est en pleine course avec executions massive. Louis XVI, Marie-Antoinette et nobles condams sont exécutés.
+STDERR:
+[2026-05-21 19:59:12] COMMAND echo 'python3 get_stock_data.py AAPL NVDA MSFT --ma 20'
+[2026-05-21 19:59:12] exit=0
+STDOUT:
+python3 get_stock_data.py AAPL NVDA MSFT --ma 20
+
+STDERR:
