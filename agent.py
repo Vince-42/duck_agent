@@ -65,6 +65,11 @@ class RuntimeState:
     invalid_response_streak: int = 0
     spec_pages: list[str] = field(default_factory=list)
     current_spec_page: int = 0
+    requirements_summary: str = ""
+    implementation_summary: str = ""
+    failure_class: str = ""
+    next_repair_objective: str = ""
+    last_terminal_kind: str = ""
 
 
 @dataclass
@@ -78,6 +83,7 @@ class ActionOutcome:
     artifact_hash: str = ""
     validation_passes: list[str] = field(default_factory=list)
     validation_failures: list[str] = field(default_factory=list)
+    terminal_kind: str = ""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -250,7 +256,28 @@ class DuckAgent:
     def has_test_target(self) -> bool:
         return self.has_validation_target()
 
+    def should_use_public_test_runner(self) -> bool:
+        task_text = self.primary_task_text().lower()
+        if not task_text:
+            return self.config.task_file is None and not self.config.task and self.config.spec_path.name == "SECRET_SPEC.md"
+
+        hackathon_markers = (
+            "solution.py",
+            "knit.py",
+            "cast_on",
+            "bind_off",
+            "repeat rows",
+            "k2tog",
+            "ssk",
+        )
+        if any(marker in task_text for marker in hackathon_markers):
+            return True
+
+        return self.config.task_file is None and not self.config.task and self.config.spec_path.name == "SECRET_SPEC.md"
+
     def public_test_runner_path(self) -> Path | None:
+        if not self.should_use_public_test_runner():
+            return None
         candidates = [self.config.spec_path.parent / "test_runner" / "run_tests.py", Path("secret_spec/test_runner/run_tests.py")]
         for candidate in candidates:
             if candidate.exists():
@@ -589,6 +616,140 @@ class DuckAgent:
             return normalized
         return f"...{normalized[-max_chars:]}"
 
+    @staticmethod
+    def normalize_trivial_content(text: str) -> str:
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        return "\n".join(line.rstrip() for line in normalized.split("\n")).strip()
+
+    @classmethod
+    def is_trivial_rewrite(cls, previous_content: str, new_content: str) -> bool:
+        return cls.normalize_trivial_content(previous_content) == cls.normalize_trivial_content(new_content)
+
+    def summarize_requirements(self) -> str:
+        task_text = self.primary_task_text().strip()
+        if not task_text:
+            return "No task summary available."
+        lines = [line.strip() for line in task_text.splitlines() if line.strip()]
+        summary = " ".join(lines[:3])
+        return self.prompt_excerpt(summary, max_chars=220)
+
+    def is_prompt_regurgitation(self, content: str) -> bool:
+        normalized = content.strip()
+        if not normalized:
+            return False
+
+        lowered = normalized.lower()
+
+        prompt_markers = (
+            "current iteration:",
+            "last test output:",
+            "last action result:",
+            "persistent iteration memory:",
+            "multi-role orchestration context:",
+            "return exactly one json object with this schema:",
+            "task description:",
+            "validation workflow:",
+            "repair guidance:",
+            "primary artifact target:",
+            "write target guidance:",
+            "program expectation:",
+            "shared rules:",
+            "deterministic constraints:",
+            "active mode briefs:",
+        )
+        if any(marker in lowered for marker in prompt_markers):
+            return True
+
+        task_text = self.primary_task_text().strip()
+        if task_text:
+            task_lines = [line.strip() for line in task_text.splitlines() if line.strip()]
+            shared_lines = sum(1 for line in task_lines if len(line) > 20 and line.lower() in lowered)
+            if shared_lines >= 3:
+                return True
+
+        return False
+
+    def summarize_implementation_state(self) -> str:
+        path = self.state.primary_artifact_path or "(unset)"
+        artifact = Path(path) if path and path != "(unset)" else None
+        if artifact and artifact.exists():
+            size = len(artifact.read_text(encoding="utf-8"))
+            return f"Target {path} exists ({size} chars). Last action: {self.prompt_excerpt(self.state.last_action_summary, max_chars=120)}"
+        return f"Target {path} not created yet. Last action: {self.prompt_excerpt(self.state.last_action_summary, max_chars=120)}"
+
+    def current_artifact_excerpt(self, *, max_chars: int = 900) -> str:
+        path = self.state.primary_artifact_path
+        if not path:
+            return ""
+        artifact = Path(path)
+        if not artifact.exists():
+            return ""
+        try:
+            content = artifact.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+        normalized = content.strip()
+        if len(normalized) <= max_chars:
+            return normalized
+        front = normalized[: max_chars // 2]
+        back = normalized[-(max_chars // 3) :]
+        return f"{front}\n...\n{back}"
+
+    def extract_validation_focus(self) -> str:
+        output = (self.state.last_test_output or "").strip()
+        if not output:
+            return ""
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        for line in reversed(lines):
+            if line.startswith("Validation expected"):
+                return line
+        for line in lines:
+            if "SyntaxError" in line:
+                return line
+        for line in lines:
+            if "missing a runnable entrypoint" in line:
+                return line
+        return self.prompt_excerpt(lines[-1], max_chars=180) if lines else ""
+
+    def classify_failure_state(self) -> str:
+        summary = self.state.last_action_summary.lower()
+        if self.state.last_validation_failures:
+            return f"validation:{', '.join(self.state.last_validation_failures)}"
+        if self.state.last_test_exit_code not in {None, 0}:
+            return "test_failure"
+        if "stalled:" in summary:
+            return "stall"
+        if "invalid model response" in summary:
+            return "invalid_model_response"
+        if self.state.last_test_exit_code == 0 and self.state.last_test_output != "No tests run yet.":
+            return "validation_passing"
+        return "none"
+
+    def compute_next_repair_objective(self) -> str:
+        if "Refusing to rerun validation before repairing failing checks" in self.state.last_action_summary:
+            return "Do not choose RUN_TESTS next. Your next action must be WRITE_FILE to patch the artifact or RUN_COMMAND to gather targeted evidence."
+        if self.state.last_validation_failures:
+            failing_checks = ", ".join(self.state.last_validation_failures)
+            validation_focus = self.extract_validation_focus()
+            if validation_focus:
+                return f"Fix failing checks: {failing_checks}. Focus on this exact validation issue: {validation_focus}"
+            return f"Fix failing checks: {failing_checks}."
+        if self.state.invalid_response_streak > 0:
+            return "Return one valid JSON action object."
+        if self.state.dirty_since_test and self.has_validation_target():
+            return "Run validation before stopping."
+        if self.state.primary_artifact_path and not Path(self.state.primary_artifact_path).exists():
+            return f"Create the primary artifact at {self.state.primary_artifact_path}."
+        if self.state.last_test_exit_code not in {None, 0}:
+            return "Use the latest test evidence to make the smallest repair."
+        return "Continue with the smallest evidence-backed next step."
+
+    def refresh_iteration_memory(self) -> None:
+        self.state.requirements_summary = self.summarize_requirements()
+        self.state.implementation_summary = self.summarize_implementation_state()
+        self.state.failure_class = self.classify_failure_state()
+        self.state.next_repair_objective = self.compute_next_repair_objective()
+
     def has_external_test_target(self) -> bool:
         return bool(self.config.test_command) or self.public_test_runner_path() is not None
 
@@ -615,6 +776,7 @@ class DuckAgent:
         if orchestration_context:
             orchestration_block = f"\n\nMulti-role orchestration context:\n{orchestration_context.strip()}\n"
 
+        self.refresh_iteration_memory()
         last_test_output = self.prompt_excerpt(self.state.last_test_output, max_chars=500)
         last_action_summary = self.prompt_excerpt(self.state.last_action_summary, max_chars=260)
 
@@ -630,6 +792,23 @@ class DuckAgent:
                 program_expectation_block += (
                     "- For a calculator task, bare arithmetic helper functions are insufficient; include runnable user-facing behavior.\n"
                     "- Prefer a non-interactive path such as CLI arguments or one piped expression and exit immediately after printing the result.\n"
+                )
+            if self.task_requests_text_stats_fields():
+                program_expectation_block += (
+                    "- For text-stats style tasks, line_count should match len(content.splitlines()).\n"
+                    "- char_count should match len(content) exactly, including spaces and newlines.\n"
+                    "- word_count should count all words, not distinct words.\n"
+                    "- top_words entries must be JSON objects with keys word and count, not tuples or arrays.\n"
+                )
+            if self.task_requests_top_n_option():
+                program_expectation_block += (
+                    "- Support the optional CLI shape `--top N <input-file>` or equivalent standard argparse handling for `--top`.\n"
+                    "- Do not treat N as a plain positional argument unless the flag is present.\n"
+                )
+            if self.task_requests_missing_file_json_error():
+                program_expectation_block += (
+                    "- If the input file does not exist, print the JSON error object to stdout and exit with code 1.\n"
+                    "- Keep stderr free of the JSON error payload for this missing-file case.\n"
                 )
 
         primary_artifact_block = ""
@@ -652,6 +831,12 @@ class DuckAgent:
                 "- Use the latest validation output to make the smallest correction that addresses the failure.\n"
                 "- Do not rewrite the requirements or prompt text into the program file.\n"
             )
+            if self.state.last_validation_failures:
+                failing_checks = ", ".join(self.state.last_validation_failures)
+                repair_guidance_block += (
+                    f"- The current failing checks are: {failing_checks}.\n"
+                    "- Do not choose RUN_TESTS again until you have changed the artifact or gathered new targeted evidence with RUN_COMMAND.\n"
+                )
 
         convergence_guidance_block = ""
         if self.state.primary_artifact_path and (self.state.last_validation_passes or self.state.last_validation_failures):
@@ -678,16 +863,36 @@ class DuckAgent:
                 "- Do not use markdown fences.\n"
             )
 
+        persistent_memory_block = (
+            "\nPersistent iteration memory:\n"
+            f"- Requirements summary: {self.state.requirements_summary}\n"
+            f"- Artifact target: {self.state.primary_artifact_path or '(unset)'}\n"
+            f"- Implementation summary: {self.state.implementation_summary}\n"
+            f"- Failure class: {self.state.failure_class}\n"
+            f"- Next repair objective: {self.state.next_repair_objective}\n"
+        )
+
+        artifact_excerpt_block = ""
+        if self.state.primary_artifact_path and self.state.last_validation_failures:
+            artifact_excerpt = self.current_artifact_excerpt()
+            if artifact_excerpt:
+                artifact_excerpt_block = (
+                    "\nCurrent artifact excerpt:\n"
+                    f"{artifact_excerpt}\n"
+                    "- Patch this artifact directly instead of rewriting from the task text.\n"
+                )
+
         validation_guidance_block = ""
         runner = self.public_test_runner_path()
         if runner and self.state.primary_artifact_path == "solution.py":
-            runner_command = f"python3 {shlex.quote(str(runner))} --compiler 'python3 solution.py' --suite public --failures 10"
-            debug_command = "python3 solution.py compile <test_file>"
-            category_command = f"python3 {shlex.quote(str(runner))} --compiler \"python3 solution.py\" --category level_0N_XXXX --failures 10"
+            compiler_command = self.config.solution_command
+            runner_command = f"python3 {shlex.quote(str(runner))} --compiler {shlex.quote(compiler_command)} --suite public --failures 10"
+            debug_command = f"{compiler_command} <test_file>"
+            category_command = f"python3 {shlex.quote(str(runner))} --compiler {shlex.quote(compiler_command)} --category level_0N_XXXX --failures 10"
             expected_dir = runner.parents[1] / "expected_outputs"
             validation_guidance_block = (
                 "\nValidation workflow:\n"
-                "- Write your code to solution.py, not knit.py. The runner calls 'python3 solution.py compile <file>'.\n"
+                f"- Write your code to solution.py, not knit.py. The runner executes the configured compiler command: {compiler_command}.\n"
                 f"- Use RUN_COMMAND like \"{debug_command}\" to debug individual cases.\n"
                 f"- Use RUN_TESTS to run the full public test suite with \"{runner_command}\"\n"
                 f"- Debug repeat tests first by running: {category_command}\n"
@@ -740,6 +945,9 @@ class DuckAgent:
             Last action result:
             {last_action_summary}
 
+            {persistent_memory_block}
+            {artifact_excerpt_block}
+
             Runtime-managed external log file:
             {external_log}
             {primary_artifact_block}
@@ -782,6 +990,8 @@ class DuckAgent:
             test_target=test_target_label,
             last_test_output=last_test_output,
             last_action_summary=last_action_summary,
+            persistent_memory_block=persistent_memory_block,
+            artifact_excerpt_block=artifact_excerpt_block,
             external_log=external_log,
             primary_artifact_block=primary_artifact_block,
             write_path_guidance_block=write_path_guidance_block,
@@ -817,6 +1027,8 @@ class DuckAgent:
             test_target=test_target_label,
             last_test_output=last_test_output,
             last_action_summary=last_action_summary,
+            persistent_memory_block=persistent_memory_block,
+            artifact_excerpt_block=artifact_excerpt_block,
             external_log=external_log,
             primary_artifact_block=primary_artifact_block,
             write_path_guidance_block=write_path_guidance_block,
@@ -916,6 +1128,23 @@ class DuckAgent:
                 summary=f"WRITE_FILE {relative_path} -> noop (same content)",
                 progress=False,
                 fingerprint=fingerprint,
+            )
+
+        if previous_content is not None and self.is_trivial_rewrite(previous_content, content):
+            trivial_fingerprint = f"WRITE_FILE_TRIVIAL:{relative_path}:{hashlib.sha256(self.normalize_trivial_content(content).encode('utf-8')).hexdigest()}"
+            self.logger.write("decisions", f"WRITE_FILE_TRIVIAL {relative_path}")
+            return ActionOutcome(
+                summary=f"WRITE_FILE {relative_path} -> trivial rewrite (no meaningful change)",
+                progress=False,
+                fingerprint=trivial_fingerprint,
+            )
+
+        if self.is_prompt_regurgitation(content):
+            self.logger.write("decisions", f"WRITE_FILE_REJECTED_PROMPT_LEAK {relative_path}")
+            return ActionOutcome(
+                summary=f"WRITE_FILE {relative_path} -> blocked (content appears to copy prompt/spec/runtime text)",
+                progress=False,
+                fingerprint=f"WRITE_FILE_BLOCKED:prompt-leak:{relative_path}",
             )
 
         if (
@@ -1269,6 +1498,8 @@ class DuckAgent:
         self.state.last_action_summary = outcome.summary
         self.state.last_action_fingerprint = outcome.fingerprint
         self.state.last_action_progress = outcome.progress
+        if outcome.terminal_kind:
+            self.state.last_terminal_kind = outcome.terminal_kind
         if outcome.test_exit_code is not None:
             self.state.last_test_fingerprint = outcome.fingerprint
             self.state.last_validation_passes = list(outcome.validation_passes)
@@ -1292,9 +1523,14 @@ class DuckAgent:
             if outcome.artifact_hash:
                 self.state.current_artifact_hash = outcome.artifact_hash
 
+        self.refresh_iteration_memory()
+
     def evaluate_primary_artifact_completion(self) -> ActionOutcome | None:
         path = self.state.primary_artifact_path
         if not path or path == self.state.external_log_path:
+            return None
+
+        if self.state.spec_pages and self.state.current_spec_page < len(self.state.spec_pages) - 1:
             return None
 
         artifact = Path(path)
@@ -1309,7 +1545,7 @@ class DuckAgent:
             return None
 
         if artifact_hash == self.state.last_completed_artifact_hash:
-            return self.stop_outcome(f"artifact {path} already validated")
+            return self.stop_outcome(f"artifact {path} already validated", terminal_kind="success")
 
         if artifact.suffix.lower() in {".txt", ".md"}:
             if len(content.strip()) < 20 or "[your" in content.lower() or "placeholder" in content.lower():
@@ -1318,18 +1554,16 @@ class DuckAgent:
                 return None
 
             self.state.last_completed_artifact_hash = artifact_hash
-            return self.stop_outcome(f"artifact {path} satisfies runtime completion checks")
+            return self.stop_outcome(f"artifact {path} satisfies runtime completion checks", terminal_kind="success")
 
         # Tightened completion for code files: require passing tests or 80%+ at iteration >= 3
         if artifact.suffix.lower() in {".py", ".c", ".cpp"}:
             if self.state.last_test_fingerprint.startswith("VALIDATE:python:syntax:"):
                 return None
             if self.state.last_test_exit_code == 0:
-                # Passed all tests
                 self.state.last_completed_artifact_hash = artifact_hash
-                return self.stop_outcome(f"artifact {path} passed tests")
+                return self.stop_outcome(f"artifact {path} passed tests", terminal_kind="success")
             elif self.state.last_test_exit_code is not None and self.state.last_test_exit_code != 0:
-                # Tests failed but check 80%+ pass rate at iteration >= 3
                 if self.state.iteration >= 3:
                     match = re.search(r'(\d+)/(\d+) passed', self.state.last_test_output or "")
                     if match:
@@ -1337,7 +1571,7 @@ class DuckAgent:
                         total = int(match.group(2))
                         if total > 0 and (passed / total >= 0.8):
                             self.state.last_completed_artifact_hash = artifact_hash
-                            return self.stop_outcome(f"artifact {path} has 80%+ tests passing ({passed}/{total})")
+                            return self.stop_outcome(f"artifact {path} has 80%+ tests passing ({passed}/{total})", terminal_kind="success")
 
         return None
 
@@ -1345,8 +1579,8 @@ class DuckAgent:
         print(f"[{self.state.iteration + 1}/{self.config.max_iterations}] {summary}")
         self.append_external_log(summary)
 
-    def stop_outcome(self, reason: str) -> ActionOutcome:
-        return ActionOutcome(summary=reason, progress=False, fingerprint=f"STOP:{reason}", stop=True)
+    def stop_outcome(self, reason: str, *, terminal_kind: str = "stall") -> ActionOutcome:
+        return ActionOutcome(summary=reason, progress=False, fingerprint=f"STOP:{reason}", stop=True, terminal_kind=terminal_kind)
 
     def complete_logging_only_task(self) -> int:
         path = self.state.external_log_path
@@ -1448,6 +1682,15 @@ class DuckAgent:
                 else:
                     outcome = ActionOutcome(summary=summary, progress=progress, fingerprint=fingerprint)
             elif action["action"] == "RUN_TESTS":
+                if (
+                    self.state.last_validation_failures
+                    and self.state.last_test_fingerprint
+                    and self.state.last_action_fingerprint == self.state.last_test_fingerprint
+                ):
+                    failing_checks = ", ".join(self.state.last_validation_failures)
+                    raise ValueError(
+                        f"Refusing to rerun validation before repairing failing checks: {failing_checks}"
+                    )
                 outcome = self.run_public_tests()
                 if not self.has_validation_target() and outcome.fingerprint == "RUN_TESTS:unavailable":
                     outcome = self.stop_outcome("stalled: model requested tests, but no test target or built-in validation is available")
@@ -1475,7 +1718,7 @@ class DuckAgent:
                 if self.state.last_test_fingerprint.startswith("VALIDATE:python:syntax:") and self.task_requires_runnable_program():
                     raise ValueError("Refusing to STOP after syntax-only validation for a runnable Python program")
 
-                outcome = self.stop_outcome(f"STOP accepted: {action['reason']}")
+                outcome = self.stop_outcome(f"STOP accepted: {action['reason']}", terminal_kind="explicit_stop")
         except ValueError as exc:
             outcome = ActionOutcome(
                 summary=f"Action rejected: {exc}",
@@ -1492,7 +1735,7 @@ class DuckAgent:
             self.print_progress(completion_outcome.summary)
             return False
 
-        if self.state.spec_pages:
+        if self.state.spec_pages and outcome.progress:
             self.state.current_spec_page += 1
             if self.state.current_spec_page >= len(self.state.spec_pages):
                 self.state.spec_pages = []
@@ -1533,6 +1776,9 @@ class DuckAgent:
 
             if not should_continue:
                 self.logger.write("decisions", f"Stopping at iteration {self.state.iteration}")
+                if self.state.last_terminal_kind == "stall":
+                    print("Agent stalled.")
+                    return 1
                 print("Agent requested stop.")
                 return 0
 

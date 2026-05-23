@@ -145,7 +145,7 @@ class MultiRoleOrchestrator:
 
     def render_role_brief(self, role_name: str) -> str:
         role = self.role_index[role_name]
-        summary = role.prompt_template or role.primary_responsibility
+        summary = role.primary_responsibility or role.prompt_template
         return f"- {role.name}: {summary}"
 
     def build_orchestration_context(self, agent: DuckAgent, task_description: str, phase: str, active_roles: tuple[str, ...]) -> str:
@@ -162,6 +162,9 @@ class MultiRoleOrchestrator:
             Current coordination phase: {phase}
             Active cognitive modes this turn: {active_roles}
 
+            Evidence priority:
+            - Task/spec/latest test evidence outrank role preferences.
+
             Shared rules:
             {shared_rules}
 
@@ -173,13 +176,8 @@ class MultiRoleOrchestrator:
             Active mode briefs:
             {role_briefs}
 
-            Collaboration protocol:
-            - Treat the active roles as temporary reasoning lenses inside one brain.
-            - Use only the active modes listed above for this turn.
-            - Summarize their best combined judgment into one final action.
-            - Do not emit role-by-role transcripts or chain-of-thought.
-            - Return exactly one JSON object matching the required action schema.
-            - The final action should be the smallest high-confidence next step for the current phase.
+            Return only one final JSON action object.
+            Choose the smallest evidence-backed next step.
         """)
 
         return template.format(

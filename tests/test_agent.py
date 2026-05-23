@@ -306,6 +306,46 @@ class DuckAgentTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 agent.write_file("../oops.py", "bad")
 
+    def test_write_file_blocks_prompt_regurgitation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="Create a Python command-line program called text_stats.py.\nIt must print exactly one JSON object to stdout.\nAdd optional support for --top N.",
+            )
+            agent = DuckAgent(config)
+
+            bad_content = (
+                "# Complex Python CLI Requirement\n\n"
+                "Current iteration: 4\n"
+                "Last test output:\nValidation expected line_count=2\n"
+                "Persistent iteration memory:\n"
+            )
+            outcome = agent.write_file("text_stats.py", bad_content)
+
+            self.assertFalse(outcome.progress)
+            self.assertIn("prompt/spec/runtime text", outcome.summary)
+
+    def test_write_file_blocks_lowercase_prompt_regurgitation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="Create a Python command-line program called text_stats.py.\nIt must print exactly one JSON object to stdout.\nAdd optional support for --top N.",
+            )
+            agent = DuckAgent(config)
+
+            bad_content = (
+                "current iteration: 2\n"
+                "last test output:\ntraceback\n"
+                "persistent iteration memory:\n"
+                "write target guidance:\n"
+            )
+            outcome = agent.write_file("text_stats.py", bad_content)
+
+            self.assertFalse(outcome.progress)
+            self.assertIn("prompt/spec/runtime text", outcome.summary)
+
     def test_run_public_tests_without_runner_returns_message(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)
@@ -352,6 +392,28 @@ class DuckAgentTests(unittest.TestCase):
             with temporary_cwd(work_dir):
                 self.assertEqual(agent.public_test_runner_path(), runner)
                 self.assertTrue(agent.has_external_test_target())
+
+    def test_task_file_run_ignores_hackathon_public_test_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            work_dir = base / "work"
+            task_file = base / "task.md"
+            local_runner = work_dir / "secret_spec" / "test_runner" / "run_tests.py"
+            work_dir.mkdir()
+            local_runner.parent.mkdir(parents=True)
+            local_runner.write_text("print('runner')\n", encoding="utf-8")
+            task_file.write_text(
+                "Create a Python command-line program called text_stats.py.\n"
+                "It must read a UTF-8 text file and print exactly one JSON object to stdout.\n",
+                encoding="utf-8",
+            )
+
+            agent = self.make_agent(str(work_dir))
+            agent.config.task_file = task_file
+
+            with temporary_cwd(work_dir):
+                self.assertIsNone(agent.public_test_runner_path())
+                self.assertFalse(agent.has_external_test_target())
 
     def test_run_public_tests_uses_runner_next_to_external_spec(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -452,11 +514,14 @@ class DuckAgentTests(unittest.TestCase):
             agent = self.make_agent(tmp_dir)
             agent.state.primary_artifact_path = "text_stats.py"
             agent.state.last_test_output = "exit=1\nSyntaxError"
+            agent.state.last_validation_failures = ["top_n"]
 
             prompt = agent.build_prompt("create a small parser")
 
             self.assertIn("Repair guidance:", prompt)
             self.assertIn("Repair text_stats.py in place instead of restarting from scratch.", prompt)
+            self.assertIn("The current failing checks are: top_n.", prompt)
+            self.assertIn("Do not choose RUN_TESTS again until you have changed the artifact", prompt)
 
     def test_build_prompt_adds_validation_feedback_and_convergence_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -473,6 +538,51 @@ class DuckAgentTests(unittest.TestCase):
             self.assertIn("Passed checks: syntax, stdout_json.", prompt)
             self.assertIn("Failing checks: semantic_counts, top_n.", prompt)
             self.assertIn("Convergence warning:", prompt)
+
+    def test_build_prompt_includes_persistent_iteration_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.primary_artifact_path = "solution.py"
+            agent.state.last_action_summary = "WRITE_FILE solution.py -> changed"
+            agent.state.last_validation_failures = ["semantic_counts"]
+            agent.state.last_test_output = "exit=0\n{}\nValidation expected line_count=2, word_count=9, char_count=49."
+
+            with temporary_cwd(Path(tmp_dir)):
+                Path("solution.py").write_text("print('hello')\n", encoding="utf-8")
+                prompt = agent.build_prompt("create a command-line program in python")
+
+            self.assertIn("Persistent iteration memory:", prompt)
+            self.assertIn("Artifact target: solution.py", prompt)
+            self.assertIn("Next repair objective:", prompt)
+            self.assertIn("Validation expected line_count=2, word_count=9, char_count=49.", prompt)
+
+    def test_build_prompt_forces_non_test_action_after_rerun_rejection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.primary_artifact_path = "text_stats.py"
+            agent.state.last_validation_failures = ["semantic_counts"]
+            agent.state.last_action_summary = "Action rejected: Refusing to rerun validation before repairing failing checks: semantic_counts"
+
+            with temporary_cwd(Path(tmp_dir)):
+                Path("text_stats.py").write_text("print('bad')\n", encoding="utf-8")
+                prompt = agent.build_prompt("create a command-line program in python")
+
+            self.assertIn("Do not choose RUN_TESTS next.", prompt)
+            self.assertIn("Your next action must be WRITE_FILE", prompt)
+
+    def test_build_prompt_includes_current_artifact_excerpt_after_validation_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.primary_artifact_path = "text_stats.py"
+            agent.state.last_validation_failures = ["semantic_counts"]
+
+            with temporary_cwd(Path(tmp_dir)):
+                Path("text_stats.py").write_text("def main():\n    print('bad')\n", encoding="utf-8")
+                prompt = agent.build_prompt("create a command-line program in python")
+
+            self.assertIn("Current artifact excerpt:", prompt)
+            self.assertIn("def main():", prompt)
+            self.assertIn("Patch this artifact directly", prompt)
 
     def test_perform_iteration_tracks_command_output_for_next_turn(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -581,6 +691,31 @@ class DuckAgentTests(unittest.TestCase):
 
             self.assertTrue(should_continue)
             self.assertIn("Action rejected: Refusing to STOP while changes have not been validated", agent.state.last_action_summary)
+
+    def test_perform_iteration_refuses_rerun_tests_before_repairing_failed_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.state.last_validation_failures = ["top_n"]
+            agent.state.last_test_fingerprint = "VALIDATE:python:text-stats:text_stats.py"
+            agent.state.last_action_fingerprint = "VALIDATE:python:text-stats:text_stats.py"
+
+            with patch.object(
+                agent,
+                "call_model",
+                return_value=json.dumps(
+                    {
+                        "action": "RUN_TESTS",
+                        "reason": "rerun tests",
+                        "path": "",
+                        "content": "",
+                        "command": "",
+                    }
+                ),
+            ):
+                should_continue = agent.perform_iteration("create a command-line program in python")
+
+            self.assertTrue(should_continue)
+            self.assertIn("Refusing to rerun validation before repairing failing checks: top_n", agent.state.last_action_summary)
 
     def test_perform_iteration_writes_file_from_model_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1136,6 +1271,25 @@ class DuckAgentTests(unittest.TestCase):
             self.assertIsNotNone(outcome)
             self.assertTrue(outcome.stop)
 
+    def test_evaluate_primary_artifact_completion_waits_for_remaining_spec_pages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AgentConfig(
+                spec_path=Path(tmp_dir) / "secret_spec" / "SECRET_SPEC.md",
+                logs_dir=Path(tmp_dir) / "agent_logs",
+                task="create a hello world program in python",
+            )
+            agent = DuckAgent(config)
+            agent.state.primary_artifact_path = "hello.py"
+            agent.state.last_test_exit_code = 0
+            agent.state.spec_pages = ["page one", "page two"]
+            agent.state.current_spec_page = 0
+
+            with temporary_cwd(Path(tmp_dir)):
+                Path("hello.py").write_text("print('hello')\n", encoding="utf-8")
+                outcome = agent.evaluate_primary_artifact_completion()
+
+            self.assertIsNone(outcome)
+
     def test_run_returns_zero_when_model_requests_stop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             agent = self.make_agent(tmp_dir)
@@ -1146,6 +1300,18 @@ class DuckAgentTests(unittest.TestCase):
                 exit_code = agent.run()
 
             self.assertEqual(exit_code, 0)
+
+    def test_run_returns_nonzero_when_agent_stalls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            agent = self.make_agent(tmp_dir)
+            agent.config.spec_path.parent.mkdir(parents=True, exist_ok=True)
+            agent.config.spec_path.write_text("spec body", encoding="utf-8")
+            agent.state.last_terminal_kind = "stall"
+
+            with patch.object(agent, "perform_iteration", return_value=False):
+                exit_code = agent.run()
+
+            self.assertEqual(exit_code, 1)
 
     def test_call_model_returns_response_text(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
