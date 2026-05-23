@@ -6,11 +6,11 @@ This repository is structured for the **team submission**, not the public event-
 
 ## Members
 
-- Vince Jonas Manoa Hossam
+- Vincent Jonas Manoa Hossam
 
 ## Team members
 
-- Vince Jonas Manoa Hossam
+- Vincent Jonas Manoa Hossam
 
 ## Current status
 
