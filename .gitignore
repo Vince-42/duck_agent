@@ -1,9 +1,0 @@
-.venv/
-__pycache__/
-*.pyc
-*.pyo
-.DS_Store
-agent_logs/*.log
-agent_logs/*.runtime.log
-.env
-*.gguf
