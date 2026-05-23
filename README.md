@@ -4,38 +4,9 @@ Team repository for the 42 Berlin x Needle Agent Hackathon.
 
 This repository is structured for the **team submission**, not the public event-materials repo. It contains a reusable local coding agent plus the hackathon submission files and logs.
 
-## Members
-
-- Vincent Jonas Manoa Hossam
-
 ## Team members
 
 - Vincent Jonas Manoa Hossam
-
-## Current status
-
-Reusable local agent setup in progress.
-
-- Agent scaffold: present
-- Submission scaffold: present
-- Hidden-task solution: not implemented yet
-- Public-test score: not available yet
-
-## Final command
-
-The final command for the hackathon solution depends on the hidden specification released under `secret_spec/`.
-
-```bash
-python3 solution.py <args-from-hidden-spec>
-```
-
-## Setup
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
 
 ## Python/runtime version
 
@@ -225,15 +196,4 @@ agent_manifest.json      # required model/tool disclosure
 agent_logs/              # required hackathon logs
 examples/                # example reusable task inputs
 secret_spec/             # hidden spec and public tests will live here
-requirements.txt         # minimal Python dependencies
-```
-
-## 19:45 checkpoint
-
-Target checkpoint format:
-
-```bash
-git commit -m "Agent readiness checkpoint"
-git tag agent-readiness-1945
-git push --follow-tags
 ```
