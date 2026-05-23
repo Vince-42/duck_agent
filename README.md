@@ -1,4 +1,4 @@
-# duck_agent
+# Duck Agent
 
 Team repository for the 42 Berlin x Needle Agent Hackathon.
 
