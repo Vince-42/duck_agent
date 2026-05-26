@@ -122,6 +122,11 @@ class MultiRoleOrchestrator:
         else:
             constraints.append("No validation target exists right now. Do not choose RUN_TESTS until a runnable or validatable artifact exists.")
 
+        if agent.task_requires_runnable_program() and agent.task_is_complex():
+            constraints.append(
+                "For complex runnable programs, prefer staged validation: syntax/build first, then a narrow smoke/debug check, then the full test suite only after a coherent checkpoint exists."
+            )
+
         if agent.state.dirty_since_test and agent.has_validation_target():
             constraints.append("Changes are dirty since the last validation. Validator and Guardrail should block STOP until validation runs.")
 

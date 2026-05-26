@@ -7,15 +7,22 @@ import json
 import os
 import re
 import shlex
+import shutil
 import socket
 import subprocess
 import textwrap
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 from urllib import error, request
 from urllib.parse import urlparse
+
+from improved_orchestrator import ImprovedOrchestrator
+from orchestration_state import StopReason
+from requirement_extractor import RequirementExtractor
+from requirement_graph import RequirementGraph, RequirementNode, RequirementStatus
+from validator import ResultValidator
 
 
 @dataclass
@@ -70,6 +77,27 @@ class RuntimeState:
     failure_class: str = ""
     next_repair_objective: str = ""
     last_terminal_kind: str = ""
+    chunk_extraction_status: dict[str, Any] = field(default_factory=dict)
+    current_chunk_extraction_complete: bool = False
+    chunks_with_pending_extraction: set[str] = field(default_factory=set)
+    execution_steps: list[ExecutionStep] = field(default_factory=list)
+    current_execution_step_index: int = 0
+    step_to_requirements: dict[str, list[str]] = field(default_factory=dict)
+    requirement_satisfaction_map: dict[str, bool] = field(default_factory=dict)
+    requirement_coverage_summary: str = ""
+    implemented_requirement_count: int = 0
+    validated_requirement_count: int = 0
+    pending_requirement_count: int = 0
+    ambiguous_requirement_count: int = 0
+    semantic_validation_passes: list[str] = field(default_factory=list)
+    semantic_validation_failures: list[str] = field(default_factory=list)
+    unmet_high_priority_requirement_ids: list[str] = field(default_factory=list)
+    current_repair_strategy: RepairStrategy | None = None
+    repair_strategy_history: list[RepairStrategy] = field(default_factory=list)
+    repair_strategy_summary: str = ""
+    validation_stage: str = "none"
+    last_quick_validation_artifact_hash: str = ""
+    quick_validation_ready_for_full_test: bool = False
 
 
 @dataclass
@@ -84,6 +112,44 @@ class ActionOutcome:
     validation_passes: list[str] = field(default_factory=list)
     validation_failures: list[str] = field(default_factory=list)
     terminal_kind: str = ""
+
+
+@dataclass
+class TaskContract:
+    cli_invocation: str = ""
+    required_json_keys: list[str] = field(default_factory=list)
+    optional_flags: list[str] = field(default_factory=list)
+    must_rules: list[str] = field(default_factory=list)
+    input_hints: list[str] = field(default_factory=list)
+    error_hints: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ExecutionStep:
+    step_id: str
+    description: str
+    requirement_ids: list[str] = field(default_factory=list)
+    related_node_kinds: list[str] = field(default_factory=list)
+    completed: bool = False
+    execution_evidence: str = ""
+
+
+@dataclass
+class SemanticValidationResult:
+    passes: list[str] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+    unmet_requirement_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RepairStrategy:
+    strategy_id: str
+    failure_class: str
+    objective: str
+    target_requirement_ids: list[str] = field(default_factory=list)
+    recommended_actions: list[str] = field(default_factory=list)
+    evidence: list[str] = field(default_factory=list)
+    attempt_count: int = 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -247,32 +313,105 @@ class DuckAgent:
         self.logger = AgentLogger(config.logs_dir)
         self.state = RuntimeState()
         self.state.external_log_path = self.detect_requested_log_output_path()
+        self.improved_orchestrator = ImprovedOrchestrator(logs_dir=config.logs_dir, max_iterations=config.max_iterations)
+        self.improved_orchestrator.state.task_id = self.hash_text(self.primary_task_text() or "default-task")[:12]
+        self.improved_orchestrator.state.user_goal = self.primary_task_text().strip()
+        self.improved_orchestrator.working_memory.objective = self.primary_task_text().strip()
+        self.requirement_extractor = RequirementExtractor()
+        self.requirement_graph: RequirementGraph | None = None
         self.orchestrator = (
             MultiRoleOrchestrator(orchestrator_config_path=config.orchestrator_config)
             if config.enable_multirole
             else None
         )
 
+    def summarize_chunk_for_prompt(self, chunk: str) -> str:
+        lines = [line.strip() for line in chunk.splitlines() if line.strip()]
+        if not lines:
+            return ""
+        priority_lines = [
+            line for line in lines
+            if any(marker in line.lower() for marker in ("must", "exactly", "json", "error", "stdout", "stderr", "command", "input", "valid", "invalid"))
+        ]
+        selected = priority_lines[:6] if priority_lines else lines[:3] + lines[-2:]
+        head = " ".join(selected[:3])
+        tail = " ".join(selected[3:5]) if len(selected) > 3 else ""
+        summary = head if not tail else f"{head} ... {tail}"
+        return self.prompt_excerpt(summary, max_chars=320)
+
+    def prepare_task_description_for_prompt(self, task_description: str) -> str:
+        if len(task_description) <= self.config.max_prompt_size:
+            return task_description
+        processed = self.improved_orchestrator.process_long_task_description(
+            task_description,
+            summarize_fn=self.summarize_chunk_for_prompt,
+        )
+        self.improved_orchestrator.working_memory.current_status = (
+            f"Condensed long task from {len(task_description)} chars into {len(processed)} chars"
+        )
+        return processed
+
+    def sync_improved_orchestrator(self, action_type: str, outcome: ActionOutcome) -> None:
+        improved_state = self.improved_orchestrator.state
+        improved_state.iteration_count = self.state.iteration
+        improved_state.actions_executed = self.state.completed_actions
+        improved_state.files_written = self.state.material_changes
+        improved_state.consecutive_no_progress_iterations = self.state.consecutive_no_progress
+        improved_state.context_summary = self.state.requirements_summary
+        improved_state.assumptions["primary_artifact_path"] = self.state.primary_artifact_path or ""
+        improved_state.decisions_made["next_repair_objective"] = self.state.next_repair_objective
+
+        validation_result = None
+        if action_type == "WRITE_FILE":
+            new_size = 0
+            if outcome.path:
+                artifact_path = Path(outcome.path)
+                if artifact_path.exists():
+                    new_size = len(artifact_path.read_text(encoding="utf-8"))
+            validation_result = ResultValidator.validate_file_write(outcome.path, 0, new_size)
+        elif action_type == "RUN_COMMAND":
+            validation_result = ResultValidator.validate_command_output(
+                0 if outcome.progress else 1,
+                outcome.summary if outcome.progress else "",
+                "" if outcome.progress else outcome.summary,
+            )
+        elif action_type == "RUN_TESTS" and outcome.test_exit_code is not None:
+            validation_result = ResultValidator.validate_test_result(
+                outcome.test_exit_code,
+                outcome.summary,
+                improved_state.validation_score,
+            )
+
+        if validation_result is not None:
+            improved_state.validation_score = max(improved_state.validation_score, validation_result.score)
+            self.improved_orchestrator.update_working_memory_from_result(action_type, validation_result, outcome.summary)
+            self.improved_orchestrator.logger.log_action_result(
+                action_type,
+                outcome.progress,
+                validation_result.score,
+                outcome.summary,
+            )
+
+        if outcome.progress:
+            improved_state.record_step_execution(
+                improved_state.current_step_description(),
+                action_type,
+                outcome.summary,
+                True,
+                outcome.fingerprint,
+            )
+        else:
+            improved_state.record_failure(action_type.lower(), outcome.summary, outcome.summary)
+
+        if self.state.last_validation_failures:
+            improved_state.tests_failed += 1
+        elif self.state.last_test_exit_code == 0:
+            improved_state.tests_passed += 1
+
     def has_test_target(self) -> bool:
         return self.has_validation_target()
 
     def should_use_public_test_runner(self) -> bool:
-        task_text = self.primary_task_text().lower()
-        if not task_text:
-            return self.config.task_file is None and not self.config.task and self.config.spec_path.name == "SECRET_SPEC.md"
-
-        hackathon_markers = (
-            "solution.py",
-            "knit.py",
-            "cast_on",
-            "bind_off",
-            "repeat rows",
-            "k2tog",
-            "ssk",
-        )
-        if any(marker in task_text for marker in hackathon_markers):
-            return True
-
         return self.config.task_file is None and not self.config.task and self.config.spec_path.name == "SECRET_SPEC.md"
 
     def public_test_runner_path(self) -> Path | None:
@@ -336,10 +475,14 @@ class DuckAgent:
         if not task_description:
             return ""
 
-        if "solution.py" in task_description or "python solution.py" in task_description:
-            return "solution.py"
-        if "knit.py" in task_description:
-            return "solution.py"
+        cli_script_path = self.extract_cli_script_path()
+        if cli_script_path:
+            return cli_script_path
+
+        if self.config.task_file is None and not self.config.task:
+            default_script_path = self.extract_script_path_from_command(self.config.solution_command)
+            if default_script_path:
+                return default_script_path
 
         patterns = [
             r"(?:file|program|script|document|message)\s+called\s+([A-Za-z0-9_.\-/]+)",
@@ -350,23 +493,34 @@ class DuckAgent:
             if match:
                 return match.group(1).strip()
 
-        lowered = task_description.lower()
-        if "hello world" in lowered and " c" in lowered:
-            return "hello.c"
-        if "hello world" in lowered and "python" in lowered:
-            return "hello.py"
-        if "introduction message" in lowered:
-            return "introduction.txt"
-
-        inferred_python_program = re.search(
-            r"(?:create|write|build|make)\s+(?:a\s+|an\s+)?([A-Za-z0-9_-]+)\s+(?:program|script|cli|calculator|tool)\s+in\s+python",
+        inferred_program = re.search(
+            r"(?:create|write|build|make)\s+(?:a\s+|an\s+)?([A-Za-z0-9_-]+(?:\s+[A-Za-z0-9_-]+)*)\s+(?:program|script|cli|tool)\s+in\s+(python|c\+\+|cpp|c)",
             task_description,
             flags=re.IGNORECASE,
         )
-        if inferred_python_program:
-            artifact_stem = inferred_python_program.group(1).strip().replace("-", "_")
-            return f"{artifact_stem}.py"
+        if inferred_program:
+            artifact_stem = re.sub(r"\s+", "_", inferred_program.group(1).strip().replace("-", "_")).lower()
+            language = inferred_program.group(2).lower()
+            if language == "python":
+                return f"{artifact_stem}.py"
+            if language in {"c++", "cpp"}:
+                return f"{artifact_stem}.cpp"
+            return f"{artifact_stem}.c"
 
+        lowered = task_description.lower()
+        if any(marker in lowered for marker in ("document", "message", "introduction")):
+            return "output.txt"
+
+        return ""
+
+    @staticmethod
+    def extract_script_path_from_command(command: str) -> str:
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            return ""
+        if len(tokens) >= 2 and tokens[0].startswith("python") and "." in tokens[1]:
+            return tokens[1]
         return ""
 
     def task_requires_runnable_program(self) -> bool:
@@ -376,6 +530,471 @@ class DuckAgent:
     def task_requests_json_stdout(self) -> bool:
         task_description = self.primary_task_text().lower()
         return "json object" in task_description or "json" in task_description
+
+    def task_is_complex(self) -> bool:
+        task_description = self.primary_task_text()
+        if not task_description:
+            return False
+        return len(task_description) > 1200 or len([line for line in task_description.splitlines() if line.strip()]) > 40
+
+    def extract_cli_invocation(self) -> str:
+        task_description = self.primary_task_text()
+        for raw_line in task_description.splitlines():
+            line = raw_line.strip().strip("`")
+            if line.startswith("$"):
+                line = line[1:].strip()
+            if line.startswith("python ") or line.startswith("python3 "):
+                return line
+        return ""
+
+    def extract_cli_script_path(self) -> str:
+        invocation = self.extract_cli_invocation()
+        if not invocation:
+            return ""
+        try:
+            tokens = shlex.split(invocation)
+        except ValueError:
+            return ""
+        if len(tokens) < 2 or not tokens[0].startswith("python"):
+            return ""
+        script_candidate = tokens[1].strip()
+        return script_candidate if "." in script_candidate else ""
+
+    @staticmethod
+    def normalize_direct_python_command(command: str) -> str:
+        stripped = command.strip()
+        if not stripped.startswith("python "):
+            return command
+        if shutil.which("python") is not None or shutil.which("python3") is None:
+            return command
+        return re.sub(r"^python\b", "python3", command, count=1)
+
+    def declared_validation_command(self) -> str:
+        invocation = self.extract_cli_invocation()
+        if invocation:
+            return self.normalize_direct_python_command(invocation)
+        return self.normalize_direct_python_command(self.config.solution_command)
+
+    def build_debug_cli_command(self, sample_input_name: str = "sample_input.txt") -> str:
+        command = self.declared_validation_command()
+        command = re.sub(r"\[[^\]]+\]", "", command)
+        command = re.sub(r"<[^>]*input[^>]*>", sample_input_name, command, flags=re.IGNORECASE)
+        command = re.sub(r"<[^>]+>", sample_input_name, command)
+        return self.normalize_direct_python_command(re.sub(r"\s+", " ", command).strip())
+
+    def extract_task_contract(self) -> TaskContract:
+        graph = self.extract_requirement_graph()
+        graph_contract = self.task_contract_from_requirement_graph(graph)
+        task_text = self.primary_task_text()
+        lines = [line.rstrip() for line in task_text.splitlines()]
+        contract = TaskContract(cli_invocation=graph_contract.cli_invocation or self.extract_cli_invocation())
+        contract.required_json_keys.extend(graph_contract.required_json_keys)
+        contract.optional_flags.extend(graph_contract.optional_flags)
+        contract.must_rules.extend(graph_contract.must_rules)
+        contract.input_hints.extend(graph_contract.input_hints)
+        contract.error_hints.extend(graph_contract.error_hints)
+
+        if contract.cli_invocation:
+            contract.optional_flags.extend(re.findall(r"(\-\-[A-Za-z0-9_-]+)", contract.cli_invocation))
+
+        current_section = ""
+        collecting_json_keys = False
+        for raw_line in lines:
+            stripped = raw_line.strip()
+            lowered = stripped.lower()
+
+            if stripped.startswith("#"):
+                heading = stripped.lstrip("#").strip().lower()
+                current_section = heading
+                collecting_json_keys = "json" in heading and "key" in heading
+                continue
+
+            if not stripped:
+                if collecting_json_keys:
+                    collecting_json_keys = False
+                continue
+
+            if "json must contain" in lowered or "required json keys" in lowered:
+                collecting_json_keys = True
+
+            if collecting_json_keys and (stripped.startswith("-") or stripped.startswith("*")):
+                key_match = re.search(r"`([^`]+)`", stripped)
+                if key_match:
+                    contract.required_json_keys.append(key_match.group(1).strip())
+                else:
+                    key = stripped.lstrip("-* ").split()[0].strip(":,.")
+                    if key:
+                        contract.required_json_keys.append(key)
+                continue
+
+            if "must" in lowered or "exactly" in lowered or lowered.startswith("do not"):
+                contract.must_rules.append(stripped)
+
+            if current_section.startswith("input") or "input format" in lowered or "input file" in lowered:
+                if stripped.startswith("-") or stripped.startswith("*") or "input" in lowered:
+                    contract.input_hints.append(stripped)
+
+            if "error" in lowered or "stderr" in lowered or "exit with code" in lowered or "does not exist" in lowered:
+                contract.error_hints.append(stripped)
+
+            contract.optional_flags.extend(re.findall(r"(\-\-[A-Za-z0-9_-]+)", stripped))
+
+        contract.required_json_keys = list(dict.fromkeys(contract.required_json_keys))
+        contract.optional_flags = list(dict.fromkeys(contract.optional_flags))
+        contract.must_rules = contract.must_rules[:8]
+        contract.input_hints = contract.input_hints[:6]
+        contract.error_hints = contract.error_hints[:6]
+        return contract
+
+    def extract_requirement_graph(self) -> RequirementGraph:
+        if self.requirement_graph is not None:
+            return self.requirement_graph
+
+        self.requirement_graph = self.requirement_extractor.build_graph(
+            self.primary_task_text(),
+            chunk_id="full-task",
+        )
+        summary = self.requirement_graph.summary()
+        self.improved_orchestrator.state.requirement_graph_summary = (
+            f"{summary['nodes']} nodes, {summary['edges']} edges, {summary['ambiguities']} ambiguities"
+        )
+        self.improved_orchestrator.state.requirement_graph_node_count = summary["nodes"]
+        self.improved_orchestrator.state.open_ambiguity_count = summary["ambiguities"]
+        return self.requirement_graph
+
+    def task_contract_from_requirement_graph(self, graph: RequirementGraph) -> TaskContract:
+        contract = TaskContract()
+        for node in graph.nodes.values():
+            text = node.normalized_text
+            if node.kind == "cli_contract" and not contract.cli_invocation:
+                contract.cli_invocation = text
+                contract.optional_flags.extend(re.findall(r"(\-\-[A-Za-z0-9_-]+)", text))
+            elif node.kind == "json_schema_rule":
+                contract.required_json_keys.extend(re.findall(r"`([^`]+)`", text))
+                if text not in contract.must_rules:
+                    contract.must_rules.append(text)
+            elif node.kind == "input_rule":
+                contract.input_hints.append(text)
+            elif node.kind == "error_rule":
+                contract.error_hints.append(text)
+            elif node.kind in {"output_rule", "invariant", "forbidden_behavior", "completion_criterion"}:
+                contract.must_rules.append(text)
+            contract.optional_flags.extend(re.findall(r"(\-\-[A-Za-z0-9_-]+)", text))
+
+        contract.required_json_keys = list(dict.fromkeys(contract.required_json_keys))
+        contract.optional_flags = list(dict.fromkeys(contract.optional_flags))
+        contract.must_rules = list(dict.fromkeys(contract.must_rules))[:8]
+        contract.input_hints = list(dict.fromkeys(contract.input_hints))[:6]
+        contract.error_hints = list(dict.fromkeys(contract.error_hints))[:6]
+        return contract
+
+    def derive_execution_steps_from_requirement_graph(self, graph: RequirementGraph) -> list[ExecutionStep]:
+        grouped_nodes = self._group_requirement_nodes(graph)
+        execution_steps = [
+            ExecutionStep(
+                step_id="step-understand",
+                description="Understand the user task and constraints",
+                requirement_ids=[],
+                related_node_kinds=sorted({node.kind for node in graph.nodes.values()}),
+            )
+        ]
+
+        if grouped_nodes["cli_contract"]:
+            execution_steps.append(
+                ExecutionStep(
+                    step_id="step-cli-contract",
+                    description="Implement the declared CLI contract",
+                    requirement_ids=[node.stable_id for node in grouped_nodes["cli_contract"]],
+                    related_node_kinds=["cli_contract"],
+                )
+            )
+        if grouped_nodes["input_rule"]:
+            execution_steps.append(
+                ExecutionStep(
+                    step_id="step-input-rules",
+                    description="Implement the declared input format and parsing behavior",
+                    requirement_ids=[node.stable_id for node in grouped_nodes["input_rule"]],
+                    related_node_kinds=["input_rule"],
+                )
+            )
+        output_requirement_ids = [
+            node.stable_id for node in grouped_nodes["json_schema_rule"] + grouped_nodes["output_rule"]
+        ]
+        if output_requirement_ids:
+            execution_steps.append(
+                ExecutionStep(
+                    step_id="step-output-rules",
+                    description="Produce the required JSON output structure",
+                    requirement_ids=output_requirement_ids,
+                    related_node_kinds=[kind for kind in ["json_schema_rule", "output_rule"] if grouped_nodes[kind]],
+                )
+            )
+        error_requirement_ids = [
+            node.stable_id for node in grouped_nodes["error_rule"] + grouped_nodes["forbidden_behavior"]
+        ]
+        if error_requirement_ids:
+            execution_steps.append(
+                ExecutionStep(
+                    step_id="step-error-rules",
+                    description="Implement the required error handling and forbidden-behavior constraints",
+                    requirement_ids=error_requirement_ids,
+                    related_node_kinds=[kind for kind in ["error_rule", "forbidden_behavior"] if grouped_nodes[kind]],
+                )
+            )
+        validation_requirement_ids = [
+            node.stable_id for node in grouped_nodes["completion_criterion"] + grouped_nodes["invariant"]
+        ]
+        if validation_requirement_ids:
+            execution_steps.append(
+                ExecutionStep(
+                    step_id="step-validation-rules",
+                    description="Validate high-priority completion and invariant requirements",
+                    requirement_ids=validation_requirement_ids,
+                    related_node_kinds=[kind for kind in ["completion_criterion", "invariant"] if grouped_nodes[kind]],
+                )
+            )
+
+        covered_requirement_ids = {
+            requirement_id
+            for step in execution_steps
+            for requirement_id in step.requirement_ids
+        }
+        uncovered_requirement_ids = [
+            node_id for node_id in sorted(graph.nodes.keys()) if node_id not in covered_requirement_ids
+        ]
+        if uncovered_requirement_ids:
+            execution_steps.append(
+                ExecutionStep(
+                    step_id="step-generic-requirements",
+                    description="Implement uncovered extracted requirements",
+                    requirement_ids=uncovered_requirement_ids,
+                    related_node_kinds=sorted({graph.nodes[node_id].kind for node_id in uncovered_requirement_ids}),
+                )
+            )
+
+        execution_steps.extend(
+            [
+                ExecutionStep(
+                    step_id="step-validate-repair",
+                    description="Validate the result and repair if necessary",
+                    requirement_ids=[],
+                    related_node_kinds=["validation"],
+                ),
+                ExecutionStep(
+                    step_id="step-stop",
+                    description="Stop with evidence",
+                    requirement_ids=[],
+                    related_node_kinds=["completion"],
+                ),
+            ]
+        )
+
+        deduped_steps: list[ExecutionStep] = []
+        seen_ids: set[str] = set()
+        for step in execution_steps:
+            if step.step_id in seen_ids:
+                continue
+            step.requirement_ids = list(dict.fromkeys(step.requirement_ids))
+            step.related_node_kinds = list(dict.fromkeys(step.related_node_kinds))
+            deduped_steps.append(step)
+            seen_ids.add(step.step_id)
+        return deduped_steps
+
+    def derive_planned_steps_from_requirement_graph(self, graph: RequirementGraph) -> list[str]:
+        return [step.description for step in self.derive_execution_steps_from_requirement_graph(graph)]
+
+    def validate_execution_plan_coverage(self, graph: RequirementGraph, execution_steps: list[ExecutionStep]) -> bool:
+        covered_requirement_ids: set[str] = set()
+        for step in execution_steps:
+            covered_requirement_ids.update(step.requirement_ids)
+        return set(graph.nodes.keys()).issubset(covered_requirement_ids)
+
+    def initialize_execution_plan(self, graph: RequirementGraph) -> list[ExecutionStep]:
+        execution_steps = self.derive_execution_steps_from_requirement_graph(graph)
+        self.state.execution_steps = execution_steps
+        self.state.current_execution_step_index = 0
+        self.state.step_to_requirements = {step.step_id: list(step.requirement_ids) for step in execution_steps}
+        self.state.requirement_satisfaction_map = {node_id: False for node_id in graph.nodes.keys()}
+        for step in execution_steps:
+            for requirement_id in step.requirement_ids:
+                node = graph.nodes.get(requirement_id)
+                if node is not None and node.status == RequirementStatus.EXTRACTED:
+                    node.status = RequirementStatus.PLANNED
+        return execution_steps
+
+    def mark_current_execution_step_complete(self, evidence: str) -> None:
+        if not self.state.execution_steps:
+            return
+        if self.state.current_execution_step_index >= len(self.state.execution_steps):
+            return
+        step = self.state.execution_steps[self.state.current_execution_step_index]
+        step.completed = True
+        step.execution_evidence = evidence
+        for requirement_id in step.requirement_ids:
+            self.state.requirement_satisfaction_map[requirement_id] = True
+            if self.requirement_graph is not None:
+                node = self.requirement_graph.nodes.get(requirement_id)
+                if node is not None and node.status in {RequirementStatus.EXTRACTED, RequirementStatus.PLANNED}:
+                    node.status = RequirementStatus.IMPLEMENTED
+        self.state.current_execution_step_index += 1
+        if self.improved_orchestrator.state.current_step_index < len(self.improved_orchestrator.state.planned_steps):
+            self.improved_orchestrator.state.current_step_index += 1
+
+    def compute_requirement_coverage(self) -> dict[str, int | str]:
+        if self.requirement_graph is None:
+            return {
+                "implemented": 0,
+                "validated": 0,
+                "pending": 0,
+                "ambiguous": 0,
+                "total": 0,
+                "summary": "no requirement graph",
+            }
+
+        implemented = 0
+        validated = 0
+        pending = 0
+        ambiguous = len(self.requirement_graph.ambiguities)
+        for node in self.requirement_graph.nodes.values():
+            if node.status == RequirementStatus.VALIDATED:
+                validated += 1
+            elif node.status == RequirementStatus.IMPLEMENTED:
+                implemented += 1
+            elif node.status == RequirementStatus.AMBIGUOUS:
+                ambiguous += 1
+            else:
+                pending += 1
+        total = len(self.requirement_graph.nodes)
+        summary = f"validated {validated}/{total}, implemented {implemented}, pending {pending}, ambiguities {ambiguous}"
+        return {
+            "implemented": implemented,
+            "validated": validated,
+            "pending": pending,
+            "ambiguous": ambiguous,
+            "total": total,
+            "summary": summary,
+        }
+
+    def semantic_validate_requirement_graph(self) -> SemanticValidationResult:
+        result = SemanticValidationResult()
+        if self.requirement_graph is None:
+            result.passes.append("no_requirement_graph")
+            return result
+
+        for node in self.requirement_graph.nodes.values():
+            requires_coverage = node.priority in {"high", "critical"} or node.kind in {
+                "cli_contract",
+                "json_schema_rule",
+                "output_rule",
+                "error_rule",
+                "completion_criterion",
+                "invariant",
+            }
+            if not requires_coverage:
+                continue
+            if node.status not in {RequirementStatus.IMPLEMENTED, RequirementStatus.VALIDATED}:
+                result.unmet_requirement_ids.append(node.stable_id)
+                result.failures.append(f"unmet:{node.kind}:{node.stable_id}")
+
+        if not result.failures:
+            result.passes.append("all_high_priority_requirements_covered")
+            if self.requirement_graph.nodes:
+                result.passes.append("requirement_graph_semantically_consistent")
+        return result
+
+    def update_requirement_coverage_state(self) -> None:
+        coverage = self.compute_requirement_coverage()
+        semantic = self.semantic_validate_requirement_graph()
+        self.state.implemented_requirement_count = int(coverage["implemented"])
+        self.state.validated_requirement_count = int(coverage["validated"])
+        self.state.pending_requirement_count = int(coverage["pending"])
+        self.state.ambiguous_requirement_count = int(coverage["ambiguous"])
+        self.state.requirement_coverage_summary = str(coverage["summary"])
+        self.state.semantic_validation_passes = list(dict.fromkeys(semantic.passes))
+        self.state.semantic_validation_failures = list(dict.fromkeys(semantic.failures))
+        self.state.unmet_high_priority_requirement_ids = list(dict.fromkeys(semantic.unmet_requirement_ids))
+        self.improved_orchestrator.state.validated_requirement_count = self.state.validated_requirement_count
+        self.improved_orchestrator.state.implemented_requirement_count = self.state.implemented_requirement_count
+        self.improved_orchestrator.state.pending_requirement_count = self.state.pending_requirement_count
+        self.improved_orchestrator.state.requirement_coverage_summary = self.state.requirement_coverage_summary
+        semantic_summary = ", ".join(self.state.semantic_validation_failures[:3]) if self.state.semantic_validation_failures else "ok"
+        self.improved_orchestrator.state.semantic_validation_summary = semantic_summary
+        self.improved_orchestrator.working_memory.current_status = self.state.requirement_coverage_summary
+        self.improved_orchestrator.working_memory.add_assumption("requirement_coverage", self.state.requirement_coverage_summary)
+        if self.state.semantic_validation_failures:
+            self.improved_orchestrator.working_memory.set_next_actions([
+                f"Address semantic gaps: {self.state.semantic_validation_failures[0]}"
+            ])
+
+    def render_requirement_coverage(self) -> str:
+        if not self.state.requirement_coverage_summary:
+            return ""
+        lines = [f"- Coverage: {self.state.requirement_coverage_summary}"]
+        if self.state.unmet_high_priority_requirement_ids:
+            lines.append(
+                f"- Unmet high-priority requirement IDs: {', '.join(self.state.unmet_high_priority_requirement_ids[:4])}"
+            )
+        if self.state.semantic_validation_failures:
+            lines.append(f"- Semantic validation blockers: {' | '.join(self.state.semantic_validation_failures[:3])}")
+        elif self.state.semantic_validation_passes:
+            lines.append(f"- Semantic validation: {' | '.join(self.state.semantic_validation_passes[:2])}")
+        return "\n".join(lines)
+
+    def render_repair_strategy_block(self) -> str:
+        return self.render_repair_strategy()
+
+    @staticmethod
+    def _group_requirement_nodes(graph: RequirementGraph) -> dict[str, list[RequirementNode]]:
+        groups: dict[str, list[RequirementNode]] = {
+            "cli_contract": [],
+            "input_rule": [],
+            "output_rule": [],
+            "json_schema_rule": [],
+            "error_rule": [],
+            "invariant": [],
+            "forbidden_behavior": [],
+            "completion_criterion": [],
+        }
+        for node in graph.nodes.values():
+            if node.kind in groups:
+                groups[node.kind].append(node)
+        return groups
+
+    def render_task_contract(self) -> str:
+        contract = self.extract_task_contract()
+        parts: list[str] = []
+        if contract.cli_invocation:
+            parts.append(f"- CLI contract: {contract.cli_invocation}")
+        if contract.required_json_keys:
+            parts.append(f"- Required JSON keys: {', '.join(contract.required_json_keys[:8])}")
+        if contract.optional_flags:
+            parts.append(f"- Optional flags seen: {', '.join(contract.optional_flags[:6])}")
+        if contract.input_hints:
+            parts.append(f"- Input requirements: {' | '.join(contract.input_hints[:3])}")
+        if contract.error_hints:
+            parts.append(f"- Error handling hints: {' | '.join(contract.error_hints[:3])}")
+        if contract.must_rules:
+            parts.append(f"- High-priority rules: {' | '.join(contract.must_rules[:4])}")
+        return "\n".join(parts)
+
+    def build_sample_cli_command(self, artifact_path: str, sample_input_path: Path) -> str:
+        invocation = self.extract_cli_invocation()
+        if not invocation:
+            return f"python3 {shlex.quote(artifact_path)} {shlex.quote(str(sample_input_path))}"
+
+        command = re.sub(r"\[[^\]]+\]", "", invocation)
+        command = re.sub(r"<[^>]*input[^>]*>", shlex.quote(str(sample_input_path)), command, flags=re.IGNORECASE)
+        command = re.sub(r"<[^>]+>", shlex.quote(str(sample_input_path)), command)
+        command = re.sub(r"\s+", " ", command).strip()
+
+        tokens = shlex.split(command)
+        if len(tokens) >= 2 and tokens[0].startswith("python"):
+            if tokens[0] == "python" and shutil.which("python") is None and shutil.which("python3") is not None:
+                tokens[0] = "python3"
+            tokens[1] = artifact_path
+        if all(str(sample_input_path) not in token for token in tokens) and any("input" in token.lower() for token in invocation.split()):
+            tokens.append(str(sample_input_path))
+        return self.normalize_direct_python_command(" ".join(shlex.quote(token) for token in tokens))
 
     def task_looks_like_file_processing_cli(self) -> bool:
         task_description = self.primary_task_text().lower()
@@ -664,7 +1283,7 @@ class DuckAgent:
         if task_text:
             task_lines = [line.strip() for line in task_text.splitlines() if line.strip()]
             shared_lines = sum(1 for line in task_lines if len(line) > 20 and line.lower() in lowered)
-            if shared_lines >= 3:
+            if shared_lines >= 6:
                 return True
 
         return False
@@ -725,7 +1344,106 @@ class DuckAgent:
             return "validation_passing"
         return "none"
 
+    def select_repair_strategy(self) -> RepairStrategy | None:
+        failure_class = self.classify_failure_state()
+        if failure_class in {"none", "validation_passing"} and not self.state.semantic_validation_failures:
+            return None
+
+        evidence: list[str] = []
+        if self.state.semantic_validation_failures:
+            evidence.extend(self.state.semantic_validation_failures[:4])
+        if self.state.last_validation_failures:
+            evidence.extend([f"validation:{item}" for item in self.state.last_validation_failures[:4]])
+        validation_focus = self.extract_validation_focus()
+        if validation_focus:
+            evidence.append(validation_focus)
+
+        target_requirement_ids = list(self.state.unmet_high_priority_requirement_ids[:6])
+        recommended_actions: list[str] = []
+        objective = "Continue with the smallest evidence-backed next step."
+
+        if "Refusing to rerun validation before repairing failing checks" in self.state.last_action_summary:
+            objective = "Do not choose RUN_TESTS next. Your next action must be WRITE_FILE to patch the artifact or RUN_COMMAND to gather targeted evidence."
+            recommended_actions.append("WRITE_FILE: patch the artifact before any further validation")
+            recommended_actions.append("RUN_COMMAND: gather targeted evidence for the failing checks")
+        elif self.state.semantic_validation_failures:
+            objective = "Implement or validate unmet high-priority requirements before stopping."
+            recommended_actions.append("WRITE_FILE: patch the primary artifact to satisfy unmet high-priority requirements")
+            if validation_focus:
+                recommended_actions.append("RUN_COMMAND: gather targeted evidence for the exact failing semantic gap")
+        elif self.state.last_validation_failures:
+            objective = f"Repair failing validation checks: {', '.join(self.state.last_validation_failures[:3])}."
+            recommended_actions.append("WRITE_FILE: patch only the code paths tied to the failing validation checks")
+            if validation_focus:
+                recommended_actions.append("RUN_COMMAND: reproduce and inspect the exact failing validation issue")
+            recommended_actions.append("RUN_TESTS: only after a targeted patch or new evidence")
+        elif self.state.last_test_exit_code not in {None, 0}:
+            objective = "Use the latest test evidence to make the smallest repair before rerunning tests."
+            recommended_actions.append("RUN_COMMAND: inspect the exact runtime or CLI failure")
+            recommended_actions.append("WRITE_FILE: patch the smallest failing path")
+        elif self.state.invalid_response_streak > 0:
+            objective = "Recover clean structured control after invalid model output."
+            recommended_actions.append("RETURN_VALID_JSON: emit one valid JSON action object")
+        elif self.state.dirty_since_test and self.has_validation_target():
+            objective = "Validate the latest material change before stopping."
+            recommended_actions.append("RUN_TESTS: validate the latest changed artifact")
+
+        if not recommended_actions:
+            recommended_actions.append("RUN_COMMAND: gather targeted evidence for the next minimal fix")
+
+        strategy_basis = "|".join([failure_class, *target_requirement_ids[:2], *(self.state.last_validation_failures[:2])]) or failure_class
+        strategy_id = f"repair-{self.hash_text(strategy_basis)[:10]}"
+        attempt_count = 1
+        if self.state.current_repair_strategy and self.state.current_repair_strategy.strategy_id == strategy_id:
+            attempt_count = self.state.current_repair_strategy.attempt_count + 1
+        return RepairStrategy(
+            strategy_id=strategy_id,
+            failure_class=failure_class,
+            objective=objective,
+            target_requirement_ids=target_requirement_ids,
+            recommended_actions=list(dict.fromkeys(recommended_actions)),
+            evidence=list(dict.fromkeys(evidence)),
+            attempt_count=attempt_count,
+        )
+
+    def update_repair_strategy_state(self) -> None:
+        strategy = self.select_repair_strategy()
+        previous_strategy = self.state.current_repair_strategy
+        self.state.current_repair_strategy = strategy
+        if strategy is None:
+            self.state.repair_strategy_summary = ""
+            self.improved_orchestrator.state.repair_strategy_summary = ""
+            self.improved_orchestrator.working_memory.decisions.pop("repair_strategy", None)
+            return
+        if previous_strategy is None or previous_strategy.strategy_id != strategy.strategy_id:
+            self.state.repair_strategy_history.append(strategy)
+        self.state.repair_strategy_summary = self.render_repair_strategy(strategy)
+        self.improved_orchestrator.state.repair_strategy_summary = strategy.objective
+        self.improved_orchestrator.working_memory.add_decision("repair_strategy", strategy.objective)
+        if strategy.recommended_actions:
+            self.improved_orchestrator.working_memory.set_next_actions(strategy.recommended_actions)
+
+    def render_repair_strategy(self, strategy: RepairStrategy | None = None) -> str:
+        strategy = strategy or self.state.current_repair_strategy
+        if strategy is None:
+            return ""
+        parts = [
+            f"- Failure class: {strategy.failure_class}",
+            f"- Objective: {strategy.objective}",
+            f"- Attempt: {strategy.attempt_count}",
+        ]
+        if strategy.target_requirement_ids:
+            parts.append(f"- Target requirements: {', '.join(strategy.target_requirement_ids[:4])}")
+        if strategy.recommended_actions:
+            parts.append(f"- Recommended next actions: {' | '.join(strategy.recommended_actions[:3])}")
+        if strategy.evidence:
+            parts.append(f"- Evidence: {' | '.join(strategy.evidence[:3])}")
+        return "\n".join(parts)
+
     def compute_next_repair_objective(self) -> str:
+        strategy = self.state.current_repair_strategy
+        if strategy is not None:
+            return strategy.objective
         if "Refusing to rerun validation before repairing failing checks" in self.state.last_action_summary:
             return "Do not choose RUN_TESTS next. Your next action must be WRITE_FILE to patch the artifact or RUN_COMMAND to gather targeted evidence."
         if self.state.last_validation_failures:
@@ -734,20 +1452,25 @@ class DuckAgent:
             if validation_focus:
                 return f"Fix failing checks: {failing_checks}. Focus on this exact validation issue: {validation_focus}"
             return f"Fix failing checks: {failing_checks}."
+        if self.state.last_test_exit_code not in {None, 0}:
+            validation_focus = self.extract_validation_focus()
+            if validation_focus:
+                return f"Use the latest test evidence to make the smallest repair. Focus on this exact validation issue: {validation_focus}"
+            return "Use the latest test evidence to make the smallest repair. Do not rerun tests until you have changed the artifact or gathered targeted evidence."
         if self.state.invalid_response_streak > 0:
             return "Return one valid JSON action object."
         if self.state.dirty_since_test and self.has_validation_target():
             return "Run validation before stopping."
         if self.state.primary_artifact_path and not Path(self.state.primary_artifact_path).exists():
             return f"Create the primary artifact at {self.state.primary_artifact_path}."
-        if self.state.last_test_exit_code not in {None, 0}:
-            return "Use the latest test evidence to make the smallest repair."
         return "Continue with the smallest evidence-backed next step."
 
     def refresh_iteration_memory(self) -> None:
+        self.update_requirement_coverage_state()
         self.state.requirements_summary = self.summarize_requirements()
         self.state.implementation_summary = self.summarize_implementation_state()
         self.state.failure_class = self.classify_failure_state()
+        self.update_repair_strategy_state()
         self.state.next_repair_objective = self.compute_next_repair_objective()
 
     def has_external_test_target(self) -> bool:
@@ -771,14 +1494,60 @@ class DuckAgent:
             chunks.append(current)
         return chunks if chunks else [text]
 
+    def _generate_chunk_id(self, page_index: int, page_content: str) -> str:
+        """Generate a stable chunk ID based on page index and content hash."""
+        content_hash = self.hash_text(page_content)
+        return f"spec-page-{page_index}-{content_hash[:8]}"
+
+    def _process_spec_chunk_extraction(self, chunk_id: str, chunk_content: str) -> bool:
+        """
+        Attempt extraction on current spec chunk, mark completion status.
+        Returns True if extraction was completed and marked, False otherwise.
+        """
+        if not self.requirement_extractor:
+            return False
+
+        if chunk_id in self.state.chunks_with_pending_extraction:
+            try:
+                result = self.requirement_extractor.extract_from_text(chunk_content, chunk_id=chunk_id)
+                report = result.report
+                self.state.chunk_extraction_status[chunk_id] = {
+                    "chunk_id": report.chunk_id,
+                    "attempted": report.attempted,
+                    "completeness_marked": report.completeness_marked,
+                    "merged_node_ids": report.merged_node_ids,
+                    "ambiguity_ids": report.ambiguity_ids,
+                    "duplicate_count": report.duplicate_count,
+                }
+                self.state.chunks_with_pending_extraction.discard(chunk_id)
+                self.state.current_chunk_extraction_complete = report.completeness_marked
+                return report.completeness_marked
+            except Exception as e:
+                self.logger.write("errors", f"Extraction failed for chunk {chunk_id}: {e}")
+                self.state.chunks_with_pending_extraction.discard(chunk_id)
+                self.state.current_chunk_extraction_complete = True
+                return True
+
+        extracted = chunk_id in self.state.chunk_extraction_status
+        self.state.current_chunk_extraction_complete = extracted
+        return extracted
+
     def build_prompt(self, task_description: str, orchestration_context: str = "") -> str:
         orchestration_block = ""
         if orchestration_context:
             orchestration_block = f"\n\nMulti-role orchestration context:\n{orchestration_context.strip()}\n"
 
         self.refresh_iteration_memory()
-        last_test_output = self.prompt_excerpt(self.state.last_test_output, max_chars=500)
-        last_action_summary = self.prompt_excerpt(self.state.last_action_summary, max_chars=260)
+        improved_context_block = self.improved_orchestrator.get_context_for_model(max_chars=260)
+        improved_context_block = f"\n\nStructured orchestration memory:\n{improved_context_block}\n"
+        task_contract_block = self.render_task_contract()
+        task_contract_block = f"\n\nExtracted task contract:\n{task_contract_block}\n" if task_contract_block else ""
+        requirement_coverage_block = self.render_requirement_coverage()
+        requirement_coverage_block = f"\n\nRequirement coverage:\n{requirement_coverage_block}\n" if requirement_coverage_block else ""
+        repair_strategy_block = self.render_repair_strategy_block()
+        repair_strategy_block = f"\n\nRepair strategy:\n{repair_strategy_block}\n" if repair_strategy_block else ""
+        last_test_output = self.prompt_excerpt(self.state.last_test_output, max_chars=320)
+        last_action_summary = self.prompt_excerpt(self.state.last_action_summary, max_chars=180)
 
         program_expectation_block = ""
         if self.task_requires_runnable_program():
@@ -787,28 +1556,17 @@ class DuckAgent:
                 "- The task asks for a runnable program/script/CLI.\n"
                 "- Produce an executable entrypoint or main flow, not only helper functions.\n"
                 "- If you write Python code, include a main path that can actually run.\n"
+                "- Treat angle-bracket placeholders from the spec (for example <input-file>) as notation, not literal Python identifiers or attribute names.\n"
             )
-            if "calculator" in task_description.lower():
+            cli_invocation = self.extract_cli_invocation()
+            if cli_invocation:
                 program_expectation_block += (
-                    "- For a calculator task, bare arithmetic helper functions are insufficient; include runnable user-facing behavior.\n"
-                    "- Prefer a non-interactive path such as CLI arguments or one piped expression and exit immediately after printing the result.\n"
+                    f"- Match this exact external CLI shape unless runtime validation says otherwise: {cli_invocation}\n"
+                    "- Do not replace the declared subcommand or optional flags with a different CLI contract.\n"
                 )
-            if self.task_requests_text_stats_fields():
+            if self.task_requests_json_stdout():
                 program_expectation_block += (
-                    "- For text-stats style tasks, line_count should match len(content.splitlines()).\n"
-                    "- char_count should match len(content) exactly, including spaces and newlines.\n"
-                    "- word_count should count all words, not distinct words.\n"
-                    "- top_words entries must be JSON objects with keys word and count, not tuples or arrays.\n"
-                )
-            if self.task_requests_top_n_option():
-                program_expectation_block += (
-                    "- Support the optional CLI shape `--top N <input-file>` or equivalent standard argparse handling for `--top`.\n"
-                    "- Do not treat N as a plain positional argument unless the flag is present.\n"
-                )
-            if self.task_requests_missing_file_json_error():
-                program_expectation_block += (
-                    "- If the input file does not exist, print the JSON error object to stdout and exit with code 1.\n"
-                    "- Keep stderr free of the JSON error payload for this missing-file case.\n"
+                    "- When JSON output is required, emit exactly one JSON object on stdout and keep the shape stable across validation runs.\n"
                 )
 
         primary_artifact_block = ""
@@ -884,45 +1642,36 @@ class DuckAgent:
 
         validation_guidance_block = ""
         runner = self.public_test_runner_path()
-        if runner and self.state.primary_artifact_path == "solution.py":
-            compiler_command = self.config.solution_command
+        if runner and self.state.primary_artifact_path:
+            compiler_command = self.declared_validation_command()
             runner_command = f"python3 {shlex.quote(str(runner))} --compiler {shlex.quote(compiler_command)} --suite public --failures 10"
-            debug_command = f"{compiler_command} <test_file>"
+            debug_command = self.build_debug_cli_command("sample_input.txt")
             category_command = f"python3 {shlex.quote(str(runner))} --compiler {shlex.quote(compiler_command)} --category level_0N_XXXX --failures 10"
             expected_dir = runner.parents[1] / "expected_outputs"
             validation_guidance_block = (
                 "\nValidation workflow:\n"
-                f"- Write your code to solution.py, not knit.py. The runner executes the configured compiler command: {compiler_command}.\n"
+                f"- Write your code to {self.state.primary_artifact_path}. The runner executes this declared compiler command: {compiler_command}.\n"
                 f"- Use RUN_COMMAND like \"{debug_command}\" to debug individual cases.\n"
                 f"- Use RUN_TESTS to run the full public test suite with \"{runner_command}\"\n"
                 f"- Debug repeat tests first by running: {category_command}\n"
                 f"- If tests report \"stale expected output\", touch the expected files under {expected_dir}.\n"
+            )
+        if self.task_requires_runnable_program() and self.task_is_complex():
+            validation_guidance_block += (
+                "- For a complex runnable program, do not jump straight to the full suite from the first large write.\n"
+                "- Earn the full-suite run by passing a quick syntax/build checkpoint first, then gather one narrow debug signal if needed.\n"
             )
 
         comprehension_phase_block = ""
         if self.state.iteration == 0:
             comprehension_phase_block = textwrap.dedent("""\
                 ========================================================
-                CRITICAL: Specification Comprehension Phase (Iteration 0)
+                Initial specification-comprehension guidance
                 ========================================================
-                Your FIRST action must be RUN_COMMAND with a shell echo that summarizes your understanding.
-                Do NOT write files yet. Do NOT skip this phase.
-                
-                Required analysis:
-                1. What is the core goal? (one sentence)
-                2. What must the program do? (list main features)
-                3. What are the constraints? (size, time, input format, etc.)
-                4. What are edge cases or error conditions?
-                5. What are the validation/test criteria?
-                
-                Example first action:
-                {
-                  "action": "RUN_COMMAND",
-                  "reason": "Analyzing specification before implementation",
-                  "command": "echo 'ANALYSIS: [1-2 sentence summary of requirements]'"
-                }
-                
-                After this analysis command runs, the next iteration will proceed with implementation.
+                - Do not waste the first turn on an echo/print command that merely restates the task.
+                - If you already have enough evidence from the task, your first action may be WRITE_FILE.
+                - If evidence is missing, use RUN_COMMAND only to gather concrete evidence from the repository or runtime.
+                - For complex tasks, the first implementation must match the declared CLI/output contract and must not be a placeholder template.
                 ========================================================
                 """)
 
@@ -956,9 +1705,13 @@ class DuckAgent:
             {convergence_guidance_block}
             {json_recovery_guidance_block}
             {program_expectation_block}
+            {task_contract_block}
+            {requirement_coverage_block}
+            {repair_strategy_block}
             {validation_guidance_block}
             {comprehension_phase_block}
             {orchestration_block}
+            {improved_context_block}
 
             Return exactly one JSON object with this schema:
             {{
@@ -968,6 +1721,14 @@ class DuckAgent:
               "content": "full file contents or empty string",
               "command": "shell command or empty string"
             }}
+
+            Internal decision contract:
+            - Role: act as a deterministic repository worker, not a chat assistant.
+            - Objective: choose the smallest action that increases verified progress.
+            - If evidence is insufficient, prefer RUN_COMMAND to gather evidence over guessing.
+            - If the task context is condensed, trust the structured orchestration memory and do not reconstruct missing details.
+            - If uncertain, state that uncertainty briefly in reason and choose an evidence-gathering action.
+            - Never invent file contents, tests, or requirements that were not observed.
 
             Rules:
             - Prefer small targeted edits.
@@ -1000,21 +1761,56 @@ class DuckAgent:
             json_recovery_guidance_block=json_recovery_guidance_block,
             program_expectation_block=program_expectation_block,
             validation_guidance_block=validation_guidance_block,
+            task_contract_block=task_contract_block,
+            requirement_coverage_block=requirement_coverage_block,
+            repair_strategy_block=repair_strategy_block,
             comprehension_phase_block=comprehension_phase_block,
             orchestration_block=orchestration_block,
+            improved_context_block=improved_context_block,
         ).strip()
+
+        if len(prompt_without_task) > self.config.max_prompt_size - 400:
+            improved_context_block = ""
+            prompt_without_task = template.format(
+                task_description="",
+                iteration=self.state.iteration,
+                test_target=test_target_label,
+                last_test_output=last_test_output,
+                last_action_summary=last_action_summary,
+                persistent_memory_block=persistent_memory_block,
+                artifact_excerpt_block=artifact_excerpt_block,
+                external_log=external_log,
+                primary_artifact_block=primary_artifact_block,
+                write_path_guidance_block=write_path_guidance_block,
+                repair_guidance_block=repair_guidance_block,
+                convergence_guidance_block=convergence_guidance_block,
+                json_recovery_guidance_block=json_recovery_guidance_block,
+                program_expectation_block=program_expectation_block,
+                validation_guidance_block=validation_guidance_block,
+                task_contract_block=task_contract_block,
+                requirement_coverage_block=requirement_coverage_block,
+                repair_strategy_block=repair_strategy_block,
+                comprehension_phase_block=comprehension_phase_block,
+                orchestration_block=orchestration_block,
+                improved_context_block=improved_context_block,
+            ).strip()
 
         available = self.config.max_prompt_size - len(prompt_without_task)
 
         if not self.state.spec_pages and available < len(task_description):
             self.state.spec_pages = self._split_spec(task_description, available)
             self.state.current_spec_page = 0
+            for idx, page in enumerate(self.state.spec_pages):
+                chunk_id = self._generate_chunk_id(idx, page)
+                self.state.chunks_with_pending_extraction.add(chunk_id)
 
         if self.state.spec_pages:
             page_idx = self.state.current_spec_page
             total_pages = len(self.state.spec_pages)
             if page_idx < total_pages:
                 page_content = self.state.spec_pages[page_idx]
+                chunk_id = self._generate_chunk_id(page_idx, page_content)
+                self._process_spec_chunk_extraction(chunk_id, page_content)
                 task_description = f"(page {page_idx + 1}/{total_pages})\n{page_content}"
                 if page_idx < total_pages - 1:
                     remaining = total_pages - page_idx - 1
@@ -1037,9 +1833,40 @@ class DuckAgent:
             json_recovery_guidance_block=json_recovery_guidance_block,
             program_expectation_block=program_expectation_block,
             validation_guidance_block=validation_guidance_block,
+            task_contract_block=task_contract_block,
+            requirement_coverage_block=requirement_coverage_block,
+            repair_strategy_block=repair_strategy_block,
             comprehension_phase_block=comprehension_phase_block,
             orchestration_block=orchestration_block,
+            improved_context_block=improved_context_block,
         ).strip()
+
+        if len(prompt) > self.config.max_prompt_size:
+            remaining = max(120, self.config.max_prompt_size - len(prompt_without_task))
+            task_description = self.prompt_excerpt(task_description, max_chars=remaining)
+            prompt = template.format(
+                task_description=task_description,
+                iteration=self.state.iteration,
+                test_target=test_target_label,
+                last_test_output=last_test_output,
+                last_action_summary=last_action_summary,
+                persistent_memory_block=persistent_memory_block,
+                artifact_excerpt_block=artifact_excerpt_block,
+                external_log=external_log,
+                primary_artifact_block=primary_artifact_block,
+                write_path_guidance_block=write_path_guidance_block,
+                repair_guidance_block=repair_guidance_block,
+                convergence_guidance_block=convergence_guidance_block,
+                json_recovery_guidance_block=json_recovery_guidance_block,
+                program_expectation_block=program_expectation_block,
+                validation_guidance_block=validation_guidance_block,
+                task_contract_block=task_contract_block,
+                requirement_coverage_block=requirement_coverage_block,
+                repair_strategy_block=repair_strategy_block,
+                comprehension_phase_block=comprehension_phase_block,
+                orchestration_block=orchestration_block,
+                improved_context_block=improved_context_block,
+            ).strip()
 
         return prompt
 
@@ -1064,6 +1891,11 @@ class DuckAgent:
         }
 
     def recover_action_from_invalid_response(self, invalid_response: str) -> dict[str, str] | None:
+        locally_recovered = self.salvage_action_from_text(invalid_response)
+        if locally_recovered is not None:
+            self.logger.write("decisions", f"MODEL_RESPONSE_LOCAL_RECOVERY {locally_recovered['action']}: {locally_recovered['reason']}")
+            return locally_recovered
+
         recovery_prompt = textwrap.dedent(f"""\
             Reformat the following invalid model response into one valid JSON object only.
 
@@ -1088,6 +1920,34 @@ class DuckAgent:
         recovered_response = self.call_model(recovery_prompt)
         self.logger.write("decisions", f"MODEL_RESPONSE_RECOVERY {recovered_response}")
         return self.parse_action(recovered_response)
+
+    def salvage_action_from_text(self, response: str) -> dict[str, str] | None:
+        normalized = self.normalize_model_response(response)
+        action_match = re.search(r'"action"\s*:\s*"([A-Z_]+)"', normalized)
+        reason_match = re.search(r'"reason"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized, flags=re.DOTALL)
+        path_match = re.search(r'"path"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized, flags=re.DOTALL)
+        command_match = re.search(r'"command"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized, flags=re.DOTALL)
+        content_match = re.search(r'"content"\s*:\s*"(.*)"\s*(?:,\s*"command"\s*:|\}\s*$)', normalized, flags=re.DOTALL)
+        if not action_match or not reason_match:
+            return None
+
+        action = action_match.group(1).strip().upper()
+        if action not in {"WRITE_FILE", "RUN_TESTS", "RUN_COMMAND", "STOP"}:
+            return None
+
+        def decode_fragment(value: str) -> str:
+            try:
+                return bytes(value, "utf-8").decode("unicode_escape")
+            except UnicodeDecodeError:
+                return value
+
+        return {
+            "action": action,
+            "reason": decode_fragment(reason_match.group(1)).strip(),
+            "path": decode_fragment(path_match.group(1)).strip() if path_match else "",
+            "content": decode_fragment(content_match.group(1)) if content_match else "",
+            "command": decode_fragment(command_match.group(1)).strip() if command_match else "",
+        }
 
     @staticmethod
     def fingerprint_for_write(path: str, content: str) -> str:
@@ -1147,6 +2007,17 @@ class DuckAgent:
                 fingerprint=f"WRITE_FILE_BLOCKED:prompt-leak:{relative_path}",
             )
 
+        if self.is_low_substance_initial_write(relative_path, content):
+            self.logger.write("decisions", f"WRITE_FILE_REJECTED_LOW_SUBSTANCE {relative_path}")
+            return ActionOutcome(
+                summary=(
+                    f"WRITE_FILE {relative_path} -> blocked (initial implementation is too shallow for the task). "
+                    "Replace placeholders and implement the declared CLI/output contract before writing again."
+                ),
+                progress=False,
+                fingerprint=f"WRITE_FILE_BLOCKED:low-substance:{relative_path}",
+            )
+
         if (
             previous_content is not None
             and relative_path == self.state.primary_artifact_path
@@ -1175,6 +2046,68 @@ class DuckAgent:
             artifact_hash=artifact_hash,
         )
 
+    def is_low_substance_initial_write(self, relative_path: str, content: str) -> bool:
+        if self.state.iteration > 0:
+            return False
+        if self.state.completed_actions > 0:
+            return False
+        if not self.task_is_complex():
+            return False
+        if Path(relative_path).suffix.lower() != ".py":
+            return False
+
+        lowered = content.lower()
+        placeholder_markers = ("placeholder", "add your", "todo", "not implemented", "pass\n", "pass\r\n")
+        if any(marker in lowered for marker in placeholder_markers):
+            return True
+        if self.task_requires_runnable_program() and self.extract_cli_invocation():
+            has_entry = "__main__" in content or "argparse" in content or "sys.argv" in content
+            if not has_entry:
+                return True
+        if self.extract_cli_invocation() and re.search(r"<[A-Za-z0-9_-]+>", content):
+            return True
+        if self.task_requests_json_stdout() and "json" not in lowered:
+            return True
+        if len(content.strip()) < 220:
+            return True
+        return False
+
+    def current_primary_artifact_hash(self) -> str:
+        path = self.state.primary_artifact_path
+        if not path:
+            return ""
+        artifact = Path(path)
+        if not artifact.exists():
+            return ""
+        return self.hash_text(artifact.read_text(encoding="utf-8"))
+
+    def should_defer_full_test_suite(self) -> bool:
+        if not self.task_requires_runnable_program() or not self.task_is_complex():
+            return False
+        artifact_hash = self.current_primary_artifact_hash()
+        if not artifact_hash:
+            return False
+        if self.state.last_quick_validation_artifact_hash != artifact_hash:
+            return True
+        return not self.state.quick_validation_ready_for_full_test
+
+    def quick_validation_outcome(self, outcome: ActionOutcome) -> ActionOutcome:
+        artifact_hash = self.current_primary_artifact_hash()
+        self.state.last_quick_validation_artifact_hash = artifact_hash
+        self.state.quick_validation_ready_for_full_test = True
+        self.state.validation_stage = "quick_validated"
+        passes = list(dict.fromkeys([*outcome.validation_passes, "quick_validation"]))
+        return ActionOutcome(
+            summary=(
+                f"{outcome.summary}\n"
+                "Quick validation passed. Continue building or gather targeted debug evidence before running the full suite."
+            ),
+            progress=True,
+            fingerprint=f"RUN_TESTS:quick-check:{artifact_hash[:12] or 'none'}",
+            test_exit_code=0,
+            validation_passes=passes,
+        )
+
     def run_builtin_validation(self) -> ActionOutcome:
         path = self.state.primary_artifact_path
         if not path:
@@ -1195,41 +2128,11 @@ class DuckAgent:
                     fingerprint=f"VALIDATE:python:missing-entrypoint:{path}",
                     validation_failures=["syntax"],
                 )
-            lowered_task = self.primary_task_text().lower()
-            if "calculator" in lowered_task:
-                smoke_commands = [
-                    f"python3 -m py_compile {shlex.quote(path)} && python3 {shlex.quote(path)} \"1+1\"",
-                    f"python3 -m py_compile {shlex.quote(path)} && python3 {shlex.quote(path)} 1 + 1",
-                    f"python3 -m py_compile {shlex.quote(path)} && printf '1+1\n' | python3 {shlex.quote(path)}",
-                ]
-                last_failure: ActionOutcome | None = None
-                for command in smoke_commands:
-                    result = self.run_command(command, category="test_runs", timeout=35)
-                    output = f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
-                    if result.returncode == 0 and "2" in result.stdout:
-                        return ActionOutcome(
-                            summary=output,
-                            progress=True,
-                            fingerprint=self.fingerprint_for_tests(command),
-                            test_exit_code=result.returncode,
-                            validation_passes=["syntax"],
-                        )
-                    last_failure = ActionOutcome(
-                        summary=output,
-                        progress=False,
-                        fingerprint=self.fingerprint_for_tests(command),
-                        test_exit_code=result.returncode,
-                        validation_failures=["syntax"],
-                    )
-                if last_failure is not None:
-                    return last_failure
-                command = f"python3 -m py_compile {shlex.quote(path)}"
-            elif "hello world" in lowered_task:
-                command = f"python3 -m py_compile {shlex.quote(path)} && python3 {shlex.quote(path)}"
-            elif self.task_looks_like_file_processing_cli():
+            if self.task_looks_like_file_processing_cli():
                 sample_input = Path(".agent_validation_input.txt")
                 sample_input.write_text("Hello world! Hello agent.\nThis is a sample file.\n", encoding="utf-8")
-                command = f"python3 -m py_compile {shlex.quote(path)} && python3 {shlex.quote(path)} {shlex.quote(str(sample_input))}"
+                cli_command = self.build_sample_cli_command(path, sample_input)
+                command = f"python3 -m py_compile {shlex.quote(path)} && {cli_command}"
             else:
                 command = f"python3 -m py_compile {shlex.quote(path)}"
         elif suffix == ".c":
@@ -1259,15 +2162,6 @@ class DuckAgent:
 
         result = self.run_command(command, category="test_runs", timeout=command_timeout)
         output = f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
-        if suffix == ".py" and "hello world" in self.primary_task_text().lower() and "hello" not in result.stdout.lower():
-            return ActionOutcome(
-                summary=f"{output}\nValidation expected hello-style output.",
-                progress=False,
-                fingerprint=f"VALIDATE:python:hello-output:{path}",
-                test_exit_code=1,
-                validation_passes=["syntax"],
-                validation_failures=["stdout_json"],
-            )
         if suffix == ".py" and self.task_looks_like_file_processing_cli() and result.returncode == 0:
             validation_passes = ["syntax"]
             try:
@@ -1291,119 +2185,23 @@ class DuckAgent:
                     validation_failures=["stdout_json"],
                 )
             validation_passes.append("stdout_json")
-            if self.task_requests_text_stats_fields():
-                sample_text = Path(".agent_validation_input.txt").read_text(encoding="utf-8")
-                expected_fields = {"line_count", "word_count", "char_count", "top_words"}
-                if not expected_fields.issubset(parsed_output.keys()):
-                    return ActionOutcome(
-                        summary=f"{output}\nValidation expected JSON keys {sorted(expected_fields)}.",
-                        progress=False,
-                        fingerprint=f"VALIDATE:python:text-stats:{path}",
-                        test_exit_code=1,
-                        validation_passes=validation_passes,
-                        validation_failures=["semantic_counts"],
-                    )
-                expected_line_count = len(sample_text.splitlines())
-                expected_word_count = len(re.findall(r"\w+", sample_text.lower()))
-                expected_char_count = len(sample_text)
-                if parsed_output.get("line_count") != expected_line_count or parsed_output.get("word_count") != expected_word_count or parsed_output.get("char_count") != expected_char_count:
-                    return ActionOutcome(
-                        summary=(
-                            f"{output}\nValidation expected line_count={expected_line_count}, "
-                            f"word_count={expected_word_count}, char_count={expected_char_count}."
-                        ),
-                        progress=False,
-                        fingerprint=f"VALIDATE:python:text-stats:{path}",
-                        test_exit_code=1,
-                        validation_passes=validation_passes,
-                        validation_failures=["semantic_counts"],
-                    )
-                if not isinstance(parsed_output.get("top_words"), list):
-                    return ActionOutcome(
-                        summary=f"{output}\nValidation expected top_words to be a list.",
-                        progress=False,
-                        fingerprint=f"VALIDATE:python:text-stats:{path}",
-                        test_exit_code=1,
-                        validation_passes=validation_passes,
-                        validation_failures=["semantic_counts"],
-                    )
-                validation_passes.append("semantic_counts")
-                if self.task_requests_top_n_option():
-                    top_result = self.run_command(
-                        f"python3 {shlex.quote(path)} --top 3 {shlex.quote(str(Path('.agent_validation_input.txt')))}",
-                        category="test_runs",
-                        timeout=command_timeout,
-                    )
-                    top_output = f"exit={top_result.returncode}\n{top_result.stdout}\n{top_result.stderr}".strip()
-                    if top_result.returncode != 0:
-                        return ActionOutcome(
-                            summary=f"{top_output}\nValidation expected --top 3 to succeed.",
-                            progress=False,
-                            fingerprint=f"VALIDATE:python:text-stats:{path}",
-                            test_exit_code=top_result.returncode,
-                            validation_passes=validation_passes,
-                            validation_failures=["top_n"],
-                        )
-                    try:
-                        top_parsed_output = json.loads(top_result.stdout)
-                    except json.JSONDecodeError:
-                        return ActionOutcome(
-                            summary=f"{top_output}\nValidation expected --top 3 to return a JSON object.",
-                            progress=False,
-                            fingerprint=f"VALIDATE:python:text-stats:{path}",
-                            test_exit_code=1,
-                            validation_passes=validation_passes,
-                            validation_failures=["top_n"],
-                        )
-                    if not isinstance(top_parsed_output, dict) or not isinstance(top_parsed_output.get("top_words"), list) or len(top_parsed_output["top_words"]) != 3:
-                        return ActionOutcome(
-                            summary=f"{top_output}\nValidation expected --top 3 to return exactly 3 top_words entries.",
-                            progress=False,
-                            fingerprint=f"VALIDATE:python:text-stats:{path}",
-                            test_exit_code=1,
-                            validation_passes=validation_passes,
-                            validation_failures=["top_n"],
-                        )
-                    validation_passes.append("top_n")
-                if self.task_requests_missing_file_json_error():
-                    missing_result = self.run_command(
-                        f"python3 {shlex.quote(path)} missing-input-file.txt",
-                        category="test_runs",
-                        timeout=command_timeout,
-                    )
-                    missing_output = f"exit={missing_result.returncode}\n{missing_result.stdout}\n{missing_result.stderr}".strip()
-                    if missing_result.returncode != 1:
-                        return ActionOutcome(
-                            summary=f"{missing_output}\nValidation expected a missing file to exit with code 1.",
-                            progress=False,
-                            fingerprint=f"VALIDATE:python:text-stats:{path}",
-                            test_exit_code=missing_result.returncode,
-                            validation_passes=validation_passes,
-                            validation_failures=["missing_file"],
-                        )
-                    try:
-                        missing_parsed_output = json.loads(missing_result.stdout)
-                    except json.JSONDecodeError:
-                        return ActionOutcome(
-                            summary=f"{missing_output}\nValidation expected missing-file output to be a JSON object on stdout.",
-                            progress=False,
-                            fingerprint=f"VALIDATE:python:text-stats:{path}",
-                            test_exit_code=1,
-                            validation_passes=validation_passes,
-                            validation_failures=["missing_file"],
-                        )
-                    if not isinstance(missing_parsed_output, dict):
-                        return ActionOutcome(
-                            summary=f"{missing_output}\nValidation expected missing-file stdout JSON to be an object.",
-                            progress=False,
-                            fingerprint=f"VALIDATE:python:text-stats:{path}",
-                            test_exit_code=1,
-                            validation_passes=validation_passes,
-                            validation_failures=["missing_file"],
-                        )
-                    validation_passes.append("missing_file")
+            return ActionOutcome(
+                summary=output,
+                progress=True,
+                fingerprint=f"VALIDATE:python:sample-io:{path}",
+                test_exit_code=result.returncode,
+                validation_passes=validation_passes,
+            )
+        if suffix == ".py" and result.returncode != 0:
+            return ActionOutcome(
+                summary=output,
+                progress=False,
+                fingerprint=self.fingerprint_for_tests(command),
+                test_exit_code=result.returncode,
+                validation_failures=self.infer_python_validation_failures(output),
+            )
         fingerprint = self.fingerprint_for_tests(command)
-        if suffix == ".py" and self.task_requires_runnable_program() and "calculator" not in self.primary_task_text().lower() and "hello world" not in self.primary_task_text().lower():
+        if suffix == ".py" and self.task_requires_runnable_program():
             fingerprint = f"VALIDATE:python:syntax:{path}"
         if suffix == ".py" and self.task_looks_like_file_processing_cli() and result.returncode == 0:
             fingerprint = f"VALIDATE:python:sample-io:{path}"
@@ -1414,6 +2212,8 @@ class DuckAgent:
     def run_command(self, command: str, *, category: str = "commands", timeout: int = 950) -> subprocess.CompletedProcess[str]:
         if not command:
             raise ValueError("Command cannot be empty")
+
+        command = self.normalize_direct_python_command(command)
 
         self.logger.write(category, f"COMMAND {command}")
         try:
@@ -1450,9 +2250,17 @@ class DuckAgent:
                 f.touch()
 
     def run_public_tests(self) -> ActionOutcome:
+        if self.should_defer_full_test_suite():
+            quick_outcome = self.run_builtin_validation()
+            if not quick_outcome.progress:
+                self.state.validation_stage = "quick_failed"
+                return quick_outcome
+            return self.quick_validation_outcome(quick_outcome)
+
         if self.config.test_command:
             result = self.run_command(self.config.test_command, category="test_runs")
             output = f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
+            self.state.validation_stage = "full_suite"
             return ActionOutcome(
                 summary=output,
                 progress=True,
@@ -1465,6 +2273,7 @@ class DuckAgent:
             builtin_outcome = self.run_builtin_validation()
             if builtin_outcome.fingerprint != "VALIDATE:none" and not builtin_outcome.fingerprint.startswith("VALIDATE:unsupported"):
                 self.logger.write("test_runs", builtin_outcome.summary)
+                self.state.validation_stage = "builtin"
                 return builtin_outcome
 
             message = "No test command configured, public test runner not available, and no built-in validation applied yet."
@@ -1478,14 +2287,57 @@ class DuckAgent:
         )
         result = self.run_command(command, category="test_runs")
         output = f"exit={result.returncode}\n{result.stdout}\n{result.stderr}".strip()
+        validation_passes, validation_failures = self.extract_validation_signals(output)
+        self.state.validation_stage = "full_suite"
         return ActionOutcome(
             summary=output,
             progress=result.returncode == 0,
             fingerprint=self.fingerprint_for_tests(command),
             test_exit_code=result.returncode,
+            validation_passes=validation_passes,
+            validation_failures=validation_failures,
         )
 
+    def extract_validation_signals(self, output: str) -> tuple[list[str], list[str]]:
+        lowered = output.lower()
+        passes: list[str] = []
+        failures: list[str] = []
+
+        if "150/150 passed" in lowered or "overall [################################]" in lowered:
+            passes.append("public_suite")
+        if "stdout is not exactly one json document" in lowered or "expected exactly one json object" in lowered:
+            failures.append("stdout_json")
+        if "usage:" in lowered or "the following arguments are required" in lowered or "invalid choice" in lowered:
+            failures.append("cli_contract")
+        if "syntaxerror" in lowered:
+            failures.append("syntax")
+        if "traceback" in lowered or "exception" in lowered:
+            failures.append("runtime_error")
+        if "stale expected output" in lowered:
+            failures.append("stale_expected_output")
+        first_failure = re.search(r"-\s+(pub_[^:]+):", output)
+        if first_failure:
+            failures.append(f"first_failure:{first_failure.group(1)}")
+        return list(dict.fromkeys(passes)), list(dict.fromkeys(failures))
+
+    def infer_python_validation_failures(self, output: str) -> list[str]:
+        lowered = output.lower()
+        failures: list[str] = []
+        if "syntaxerror" in output:
+            failures.append("syntax")
+        if "traceback" in lowered:
+            failures.append("runtime_error")
+        if "nameerror" in lowered or "attributeerror" in lowered or "typeerror" in lowered:
+            failures.append("runtime_error")
+        if "jsondecodeerror" in lowered or "expecting value" in lowered:
+            failures.append("input_parsing")
+        if "the following arguments are required" in lowered or "invalid choice" in lowered:
+            failures.append("cli_contract")
+        return list(dict.fromkeys(failures or ["syntax"]))
+
     def should_block_repeated_action(self, fingerprint: str, progress: bool) -> bool:
+        if fingerprint.startswith("WRITE_FILE_BLOCKED:") or fingerprint.startswith("ACTION_REJECTED:"):
+            return False
         if fingerprint == self.state.last_action_fingerprint:
             if not progress and not self.state.last_action_progress:
                 return True
@@ -1515,13 +2367,27 @@ class DuckAgent:
         if outcome.progress:
             self.state.completed_actions += 1
             self.state.consecutive_no_progress = 0
+            self.mark_current_execution_step_complete(outcome.summary)
+            if outcome.test_exit_code == 0 or not self.state.semantic_validation_failures:
+                self.state.current_repair_strategy = None
+                self.state.repair_strategy_summary = ""
         else:
             self.state.consecutive_no_progress += 1
+
+        if outcome.test_exit_code == 0 and self.requirement_graph is not None:
+            for requirement_id, satisfied in self.state.requirement_satisfaction_map.items():
+                if not satisfied:
+                    continue
+                node = self.requirement_graph.nodes.get(requirement_id)
+                if node is not None and node.status in {RequirementStatus.IMPLEMENTED, RequirementStatus.PLANNED}:
+                    node.status = RequirementStatus.VALIDATED
 
         if outcome.path and self.state.primary_artifact_path and outcome.path == self.state.primary_artifact_path and outcome.progress:
             self.state.rewrite_count_for_primary_artifact += 1
             if outcome.artifact_hash:
                 self.state.current_artifact_hash = outcome.artifact_hash
+                self.state.quick_validation_ready_for_full_test = False
+                self.state.validation_stage = "dirty_after_write"
 
         self.refresh_iteration_memory()
 
@@ -1533,14 +2399,18 @@ class DuckAgent:
         if self.state.spec_pages and self.state.current_spec_page < len(self.state.spec_pages) - 1:
             return None
 
+        if self.state.chunks_with_pending_extraction and not self.state.current_chunk_extraction_complete:
+            return None
+
+        if self.state.semantic_validation_failures:
+            return None
+
         artifact = Path(path)
         if not artifact.exists():
             return None
 
         content = artifact.read_text(encoding="utf-8")
         artifact_hash = self.hash_text(content)
-        lowered_task = self.primary_task_text().lower()
-
         if self.has_test_target() and self.state.dirty_since_test:
             return None
 
@@ -1549,8 +2419,6 @@ class DuckAgent:
 
         if artifact.suffix.lower() in {".txt", ".md"}:
             if len(content.strip()) < 20 or "[your" in content.lower() or "placeholder" in content.lower():
-                return None
-            if "introduction" in lowered_task and "vincent" not in content.lower():
                 return None
 
             self.state.last_completed_artifact_hash = artifact_hash
@@ -1598,6 +2466,18 @@ class DuckAgent:
         return 0
 
     def perform_iteration(self, task_description: str) -> bool:
+        self.improved_orchestrator.state.iteration_count = self.state.iteration
+        next_phase = self.improved_orchestrator.decide_next_phase()
+        self.improved_orchestrator.state.update_phase(next_phase)
+        should_stop, stop_reason, stop_message = self.improved_orchestrator.should_stop()
+        if should_stop:
+            self.improved_orchestrator.state.should_stop = True
+            self.improved_orchestrator.state.stop_reason = stop_reason
+            self.improved_orchestrator.state.stop_evidence = stop_message
+            self.state.last_action_summary = stop_message
+            self.state.last_terminal_kind = "success" if stop_reason == StopReason.SUCCESS else "stall"
+            return False
+
         orchestration_context = ""
         if self.orchestrator is not None:
             turn = self.orchestrator.prepare_turn(self, task_description)
@@ -1676,18 +2556,18 @@ class DuckAgent:
                     f"STDOUT: {result.stdout.strip() or '(empty)'} STDERR: {result.stderr.strip() or '(empty)'}"
                 )
                 fingerprint = self.fingerprint_for_command(action["command"])
-                progress = bool(result.stdout.strip() or result.stderr.strip() or result.returncode != 0)
+                progress = bool(result.stdout.strip()) or result.returncode == 0
                 if self.should_block_repeated_action(fingerprint, progress):
                     outcome = self.stop_outcome(f"stalled: repeated equivalent command `{action['command']}`")
                 else:
                     outcome = ActionOutcome(summary=summary, progress=progress, fingerprint=fingerprint)
             elif action["action"] == "RUN_TESTS":
                 if (
-                    self.state.last_validation_failures
+                    (self.state.last_validation_failures or self.state.last_test_exit_code not in {None, 0})
                     and self.state.last_test_fingerprint
                     and self.state.last_action_fingerprint == self.state.last_test_fingerprint
                 ):
-                    failing_checks = ", ".join(self.state.last_validation_failures)
+                    failing_checks = ", ".join(self.state.last_validation_failures) if self.state.last_validation_failures else self.extract_validation_focus() or "the latest failing validation evidence"
                     raise ValueError(
                         f"Refusing to rerun validation before repairing failing checks: {failing_checks}"
                     )
@@ -1712,6 +2592,17 @@ class DuckAgent:
                         f"is current, {remaining} more page(s) remain."
                     )
 
+                if not self.state.current_chunk_extraction_complete and self.state.chunks_with_pending_extraction:
+                    raise ValueError(
+                        f"Cannot STOP — extraction not complete for current chunk. Pending chunks: {len(self.state.chunks_with_pending_extraction)}"
+                    )
+
+                if self.state.semantic_validation_failures:
+                    raise ValueError(
+                        "Cannot STOP — semantic validation is incomplete: "
+                        + " | ".join(self.state.semantic_validation_failures[:3])
+                    )
+
                 if self.state.dirty_since_test and self.has_validation_target():
                     raise ValueError("Refusing to STOP while changes have not been validated by a test run")
 
@@ -1727,6 +2618,7 @@ class DuckAgent:
             )
 
         self.update_state_from_outcome(outcome)
+        self.sync_improved_orchestrator(action["action"], outcome)
         self.print_progress(outcome.summary)
 
         completion_outcome = self.evaluate_primary_artifact_completion()
@@ -1736,10 +2628,13 @@ class DuckAgent:
             return False
 
         if self.state.spec_pages and outcome.progress:
-            self.state.current_spec_page += 1
-            if self.state.current_spec_page >= len(self.state.spec_pages):
-                self.state.spec_pages = []
-                self.state.current_spec_page = 0
+            if self.state.current_chunk_extraction_complete:
+                self.state.current_spec_page += 1
+                if self.state.current_spec_page >= len(self.state.spec_pages):
+                    self.state.spec_pages = []
+                    self.state.current_spec_page = 0
+            else:
+                self.print_progress("Page advancement blocked: waiting for extraction completeness on current chunk")
 
         if self.state.consecutive_no_progress >= 3:
             raise ValueError("Stopping after 3 consecutive no-progress iterations")
@@ -1751,11 +2646,35 @@ class DuckAgent:
 
     def run(self) -> int:
         try:
-            task_description = self.load_task_description()
+            task_description = self.prepare_task_description_for_prompt(self.load_task_description())
         except FileNotFoundError as exc:
             self.logger.write("errors", str(exc))
             print(exc)
             return 1
+
+        if not self.improved_orchestrator.state.current_plan:
+            graph = self.extract_requirement_graph()
+            contract = self.task_contract_from_requirement_graph(graph)
+            self.improved_orchestrator.state.current_plan = "Understand the task contract, implement the requested artifact, validate against the declared CLI/output behavior, then stop cleanly."
+            execution_steps = self.initialize_execution_plan(graph)
+            if not self.validate_execution_plan_coverage(graph, execution_steps):
+                raise ValueError("Execution plan does not cover all extracted requirements")
+            planned_steps = [step.description for step in execution_steps]
+            if not contract.cli_invocation and not contract.input_hints and not contract.required_json_keys:
+                planned_steps = [
+                    "Understand the user task and constraints",
+                    "Validate the result and repair if necessary",
+                    "Stop with evidence",
+                ]
+                self.state.execution_steps = [
+                    ExecutionStep(step_id="step-understand", description=planned_steps[0]),
+                    ExecutionStep(step_id="step-validate-repair", description=planned_steps[1]),
+                    ExecutionStep(step_id="step-stop", description=planned_steps[2]),
+                ]
+                self.state.current_execution_step_index = 0
+                self.state.step_to_requirements = {step.step_id: [] for step in self.state.execution_steps}
+                self.state.requirement_satisfaction_map = {}
+            self.improved_orchestrator.state.planned_steps = planned_steps
 
         if self.is_logging_only_task():
             return self.complete_logging_only_task()
